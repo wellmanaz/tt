@@ -41,42 +41,11 @@ export const OUTFITS = [
 ];
 const MIN_PRICE = { tendies: 15, fuel: 10, chips: 14, diamonds: 50 };
 
-// Playable characters. Like the original's species, they are mostly a look
-// plus a handicap: starting cash and turn length. The Degen also feels
-// random events and the YOLO Bar twice as hard, in both directions.
-export const CHARACTERS = [
-  {
-    id: 'ape', name: 'Ape', money: 1000, time: 1, swing: 1, holdsBot: true, adjBonus: 2,
-    pro: 'Neighbour bonus +2 · never drops a bot',
-    con: 'No head start of any kind',
-  },
-  {
-    id: 'autist', name: 'Autist', money: 600, time: 0.8, swing: 1, produceBonus: 1,
-    pro: 'Reads the charts: every bot makes +1',
-    con: 'Starts with $600 · 20% shorter turns',
-  },
-  {
-    id: 'degen', name: 'Degen', money: 1000, time: 1, swing: 2,
-    pro: 'Luck and production rolls swing 2× · bar pays 2×',
-    con: 'In both directions · the bar can cost you',
-  },
-  {
-    id: 'smooth', name: 'Smooth-Brain', money: 1400, time: 1.2, swing: 1, foodExtra: 1, shopMult: 1.15,
-    pro: 'Starts with $1,400 · 20% longer turns',
-    con: 'Eats 1 extra tendie · pays 15% more in shops',
-  },
-  {
-    id: 'regard', name: 'Regard', money: 900, time: 1, swing: 1, noSpoil: true, shopMult: 1.1,
-    pro: 'Bagholds: tendies and fuel never spoil',
-    con: 'Starts with $900 · pays 10% more in shops',
-  },
-  {
-    id: 'fullregard', name: 'Full-Regard', money: 1800, time: 0.9, swing: 1, shopMult: 1.3,
-    pro: 'All in: starts with $1,800',
-    con: 'Pays 30% more in shops · 10% shorter turns',
-  },
-];
-export const HEDGIE = { id: 'hedgie', name: 'Hedgie', money: 1000, time: 1, swing: 1 };
+// Playable characters live one per file in js/chars/ (stats, lobby card
+// text and art together); re-exported here so the rules and the browser side
+// both read them from core.
+export { CHARACTERS, HEDGIE } from './chars/index.js';
+import { CHARACTERS, HEDGIE } from './chars/index.js';
 
 // What a player must eat in a given round (Smooth-Brains eat more).
 export function foodNeedFor(s, p, round = s.round) {

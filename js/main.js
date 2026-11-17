@@ -3,6 +3,8 @@
 import * as C from './core.js';
 import { makeAI, aiInput } from './ai.js';
 import { Music } from './music.js';
+import { characterById } from './chars/index.js';
+import { still } from './chars/gaits.js';
 
 const W = 1920;
 const H = 1080;
@@ -253,23 +255,18 @@ function drawBackground() {
   });
 }
 
-// Character art: cut from one sheet (assets/chars/sheet.jpg). Each cell is
-// given in the sheet's original 1792x2400 coordinates; the flat grey
-// background is flood-filled away from the edges and the sprite trimmed.
-const SPRITE_CELLS = {
-  ape: [60, 90, 880, 850],
-  regard: [1000, 90, 1780, 850],
-  fullregard: [160, 860, 820, 1600],
-  autist: [1000, 860, 1700, 1600],
-  degen: [120, 1620, 960, 2400],
-};
+// Character art: cut from one sheet (assets/chars/sheet.jpg). Each
+// character file names its cell in the sheet's original 1792x2400
+// coordinates; the flat grey background is flood-filled away from the edges
+// and the sprite trimmed.
 const SPRITES = {};
 {
   const sheet = new Image();
   sheet.onload = () => {
     const k = sheet.width / 1792;
-    for (const [id, cell] of Object.entries(SPRITE_CELLS)) {
-      const [x0, y0, x1, y1] = cell.map((v) => Math.round(v * k));
+    for (const ch of C.CHARACTERS) {
+      if (!ch.sprite) continue;
+      const [x0, y0, x1, y1] = ch.sprite.map((v) => Math.round(v * k));
       const w = x1 - x0;
       const h = y1 - y0;
       const cv = document.createElement('canvas');
@@ -321,7 +318,7 @@ const SPRITES = {};
       out.width = maxX - minX + 1;
       out.height = maxY - minY + 1;
       out.getContext('2d').drawImage(cv, minX, minY, out.width, out.height, 0, 0, out.width, out.height);
-      SPRITES[id] = out;
+      SPRITES[ch.id] = out;
     }
   };
   sheet.src = 'assets/chars/sheet.jpg';
@@ -821,13 +818,14 @@ function drawBot(x, y, outfit, scale = 1, opts = {}) {
   ctx.restore();
 }
 
-// Characters. Feet at y, about 70px tall at scale 1. Limbs swing when
-// `moving`; `facing` is 1 for right, -1 for left. The seat colour shows up
-// as a band or accessory so you can still tell players apart.
-// Characters that sit in a chair roll instead of walking.
-const SPRITE_ROLLS = { autist: true, degen: true };
-
+// Characters. Each one is a file in js/chars/ (fields in js/chars/index.js).
+// Feet at y, about 70px tall at scale 1; `facing` is 1 for right, -1 for
+// left. Cut-out art from the sheet moves by the character's `gait`
+// (js/chars/gaits.js). Until the sheet loads, or for characters without a
+// cell, the character's own draw() is used; it gets the seat colour so a
+// band or accessory can show which player it is.
 function drawCharacter(id, x, y, scale, color, facing = 1, now = 0, moving = false, vertical = false) {
+  const ch = characterById(id);
   ctx.save();
   ctx.translate(x, y);
   ctx.scale(scale * facing, scale);
@@ -837,13 +835,10 @@ function drawCharacter(id, x, y, scale, color, facing = 1, now = 0, moving = fal
   const sprite = SPRITES[id];
   if (sprite) {
     // Cut-out art: feet on the origin, 78px tall at scale 1, standing on a
-    // ring in the player's colour. The picture is cut into torso, arms and
-    // legs that swing from the shoulders and hips when walking.
+    // ring in the player's colour. The gait then draws in sprite pixels.
     const H = 78;
-    const spw = sprite.width;
-    const sph = sprite.height;
-    const k = H / sph;
-    const W = spw * k;
+    const k = H / sprite.height;
+    const W = sprite.width * k;
     ctx.fillStyle = color;
     ctx.globalAlpha = 0.8;
     ctx.beginPath();
@@ -856,488 +851,15 @@ function drawCharacter(id, x, y, scale, color, facing = 1, now = 0, moving = fal
     ctx.globalAlpha = 1;
     ctx.translate(-W / 2, -H);
     ctx.scale(k, k);
-    // Draw one rectangle of the picture, turned by rot about the pivot.
-    const part = (rx, ry, rw, rh, px, py, rot, dx = 0, dy = 0) => {
-      ctx.save();
-      ctx.translate(px + dx, py + dy);
-      ctx.rotate(rot);
-      ctx.drawImage(sprite, rx, ry, rw, rh, rx - px, ry - py, rw, rh);
-      ctx.restore();
-    };
-    const s = Math.sin(t);
-    if (!moving) {
-      ctx.drawImage(sprite, 0, 0);
-    } else if (SPRITE_ROLLS[id]) {
-      if (vertical) {
-        // bouncing along on the castors
-        const b = Math.abs(Math.sin(t * 1.5));
-        part(0, 0, spw, sph, spw / 2, sph, (b - 0.5) * 0.06, 0, (-b * 10) / k);
-      } else {
-        // leaning into it, wheels chattering, speed lines behind
-        ctx.strokeStyle = 'rgba(255,255,255,0.3)';
-        ctx.lineWidth = 3 / k;
-        for (let i = 0; i < 3; i++) {
-          const yy = sph * (0.45 + i * 0.15);
-          ctx.beginPath();
-          ctx.moveTo(-6 / k, yy);
-          ctx.lineTo(-(22 + ((now / 30 + i * 9) % 14)) / k, yy);
-          ctx.stroke();
-        }
-        part(0, 0, spw, sph, spw / 2, sph, 0.1 + Math.sin(t * 3) * 0.02, 0, (Math.sin(t * 3) * 1.5) / k);
-      }
-    } else {
-      const hipY = sph * 0.62;
-      const shoulderY = sph * 0.3;
-      const armW = spw * 0.26;
-      const legH = sph - hipY;
-      const armH = hipY - shoulderY + sph * 0.1;
-      if (vertical) {
-        // stepping up or down the screen: legs lift in turn, body sways
-        const dy = (-Math.abs(s) * 3) / k;
-        part(0, hipY, spw / 2, legH, spw * 0.28, hipY, s * 0.08, 0, dy - (Math.max(0, s) * 7) / k);
-        part(spw / 2, hipY, spw / 2, legH, spw * 0.72, hipY, s * 0.08, 0, dy - (Math.max(0, -s) * 7) / k);
-        ctx.save();
-        ctx.translate(spw / 2, hipY + dy);
-        ctx.rotate(s * 0.05);
-        ctx.translate(-spw / 2, -hipY);
-        part(0, 0, spw, hipY + sph * 0.08, 0, 0, 0);
-        part(0, shoulderY, armW, armH, armW, shoulderY, -s * 0.12);
-        part(spw - armW, shoulderY, armW, armH, spw - armW, shoulderY, s * 0.12);
-        ctx.restore();
-      } else {
-        // a proper stride: legs scissor from the hips, arms swing the other way
-        const dy = (-Math.abs(s) * 4) / k;
-        part(0, hipY, spw / 2, legH, spw * 0.28, hipY, s * 0.38, 0, dy);
-        part(spw / 2, hipY, spw / 2, legH, spw * 0.72, hipY, -s * 0.38, 0, dy);
-        ctx.save();
-        ctx.translate(spw / 2, hipY + dy);
-        ctx.rotate(0.07);
-        ctx.translate(-spw / 2, -hipY);
-        part(0, 0, spw, hipY + sph * 0.08, 0, 0, 0);
-        part(0, shoulderY, armW, armH, armW, shoulderY, -s * 0.3);
-        part(spw - armW, shoulderY, armW, armH, spw - armW, shoulderY, s * 0.3);
-        ctx.restore();
-      }
-    }
+    (ch.gait || still)(ctx, sprite, { t, now, k, moving, vertical });
     ctx.restore();
     return;
   }
-  if (id === 'regard' || id === 'fullregard') id = 'hedgie'; // until the sheet loads
   ctx.fillStyle = 'rgba(0,0,0,0.35)';
   ctx.beginPath();
   ctx.ellipse(0, 2, 28, 7, 0, 0, 7);
   ctx.fill();
-  const eye = (ex, ey, r = 2.6) => {
-    ctx.fillStyle = '#141821';
-    ctx.beginPath();
-    ctx.arc(ex, ey, r, 0, 7);
-    ctx.fill();
-  };
-  const limb = (x1, y1, x2, y2, w, col) => {
-    ctx.strokeStyle = col;
-    ctx.lineWidth = w;
-    ctx.lineCap = 'round';
-    ctx.beginPath();
-    ctx.moveTo(x1, y1);
-    ctx.lineTo(x2, y2);
-    ctx.stroke();
-  };
-
-  if (id === 'ape') {
-    // A big cartoon gorilla: brown fur, tan muzzle and chest, a swept-up
-    // tuft, huge hands. It bounds along on all fours, both arms slamming
-    // down together, and thumps its chest now and then when idle.
-    const fur = '#6b3f23';
-    const dark = '#4a2a16';
-    const tan = '#e8b98a';
-    const g = moving ? t * 1.15 : 0;
-    const bound = moving ? Math.max(0, Math.sin(g)) : 0; // 0..1 airborne-ish
-    const land = moving ? Math.max(0, -Math.sin(g)) : 0; // crouch on landing
-    const idleT = now / 700;
-    const thump = !moving && Math.sin(idleT) > 0.75 ? Math.sin(now / 60) : 0; // chest beat burst
-    const breathe = 1 + Math.sin(idleT) * 0.03;
-    ctx.translate(0, -bound * 14 + land * 4);
-
-    const limb = (sx, sy, jx, jy, px, py, w1, w2, col) => {
-      ctx.strokeStyle = col;
-      ctx.lineCap = 'round';
-      ctx.lineJoin = 'round';
-      ctx.lineWidth = w1;
-      ctx.beginPath();
-      ctx.moveTo(sx, sy);
-      ctx.lineTo(jx, jy);
-      ctx.stroke();
-      ctx.lineWidth = w2;
-      ctx.beginPath();
-      ctx.moveTo(jx, jy);
-      ctx.lineTo(px, py);
-      ctx.stroke();
-    };
-    const hand = (hx, hy, r, col) => {
-      ctx.fillStyle = col;
-      ctx.beginPath();
-      ctx.arc(hx, hy, r, 0, 7);
-      ctx.fill();
-      ctx.fillStyle = dark;
-      for (let k = -1; k <= 1; k++) {
-        ctx.beginPath();
-        ctx.arc(hx + k * r * 0.55, hy - r * 0.35, r * 0.22, 0, 7);
-        ctx.fill();
-      }
-    };
-
-    // legs: short, tucked under, kicking back on the bound
-    const legSwing = moving ? Math.sin(g + Math.PI) * 10 : 0;
-    limb(-14, -18, -18 + legSwing * 0.4, -6, -16 + legSwing, 0 + bound * 6, 13, 11, dark);
-    limb(-4, -18, -6 + legSwing * 0.4, -6, -4 + legSwing, 0 + bound * 6, 13, 11, fur);
-
-    // arms: both reach forward together and slam down
-    const reach = moving ? Math.cos(g) * 12 : 0;
-    const armY = moving ? -bound * 10 : thump * -6;
-    const farHand = [30 + reach, 0 + armY];
-    const nearHand = [36 + reach, 2 + armY];
-    if (!moving && thump) {
-      // chest thump: hands up on the chest
-      farHand[0] = 6;
-      farHand[1] = -44 + thump * 4;
-      nearHand[0] = 18;
-      nearHand[1] = -40 - thump * 4;
-    }
-    limb(8, -48, 24 + reach * 0.5, -30 + armY * 0.5, farHand[0], farHand[1], 15, 13, dark);
-
-    // torso: wide, round, tan chest patch
-    ctx.save();
-    ctx.translate(0, -36);
-    ctx.scale(breathe, breathe);
-    ctx.fillStyle = fur;
-    ctx.beginPath();
-    ctx.ellipse(2, 0, 30, 26, -0.15, 0, 7);
-    ctx.fill();
-    ctx.beginPath();
-    ctx.ellipse(10, -14, 26, 16, -0.2, 0, 7);
-    ctx.fill();
-    ctx.fillStyle = tan;
-    ctx.beginPath();
-    ctx.ellipse(12, 2, 16, 14, 0, 0, 7);
-    ctx.fill();
-    ctx.strokeStyle = '#c99a6e';
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.moveTo(12, -8);
-    ctx.lineTo(12, 10);
-    ctx.stroke();
-    ctx.restore();
-
-    limb(18, -46, 32 + reach * 0.5, -28 + armY * 0.5, nearHand[0], nearHand[1], 17, 15, fur);
-    hand(farHand[0], farHand[1], 9, dark);
-    hand(nearHand[0], nearHand[1], 10, fur);
-    // wristband in the player colour
-    ctx.fillStyle = color;
-    ctx.save();
-    ctx.translate(nearHand[0] - 6, nearHand[1] - 10);
-    ctx.rotate(0.5);
-    rr(-7, -4, 14, 8, 3);
-    ctx.fill();
-    ctx.restore();
-
-    // head: big, round, with a tan face, heavy brow and a tuft on top
-    const hb = moving ? -bound * 3 : Math.sin(idleT * 1.3) * 1.2;
-    ctx.save();
-    ctx.translate(24, -66 + hb);
-    ctx.fillStyle = fur;
-    ctx.beginPath();
-    ctx.arc(0, 0, 19, 0, 7);
-    ctx.fill();
-    // ears
-    ctx.beginPath();
-    ctx.arc(-17, -2, 6, 0, 7);
-    ctx.fill();
-    ctx.fillStyle = tan;
-    ctx.beginPath();
-    ctx.arc(-17, -2, 3, 0, 7);
-    ctx.fill();
-    // tuft
-    ctx.fillStyle = fur;
-    ctx.beginPath();
-    ctx.moveTo(-6, -16);
-    ctx.quadraticCurveTo(0, -34, 12, -24);
-    ctx.quadraticCurveTo(6, -22, 8, -16);
-    ctx.closePath();
-    ctx.fill();
-    // face
-    ctx.fillStyle = tan;
-    ctx.beginPath();
-    ctx.ellipse(4, 5, 15, 12, 0, 0, 7);
-    ctx.fill();
-    ctx.beginPath();
-    ctx.ellipse(2, -4, 12, 7, 0, 0, 7);
-    ctx.fill();
-    // brow
-    ctx.fillStyle = fur;
-    ctx.beginPath();
-    ctx.ellipse(2, -9, 14, 4, 0, 0, 7);
-    ctx.fill();
-    // eyes: big, friendly
-    ctx.fillStyle = '#fff';
-    ctx.beginPath();
-    ctx.ellipse(-3, -3, 4.5, 5, 0, 0, 7);
-    ctx.ellipse(8, -3, 4.5, 5, 0, 0, 7);
-    ctx.fill();
-    eye(-2, -2, 2.4);
-    eye(9, -2, 2.4);
-    // nostrils and a grin
-    ctx.fillStyle = dark;
-    ctx.beginPath();
-    ctx.arc(2, 6, 1.8, 0, 7);
-    ctx.arc(8, 6, 1.8, 0, 7);
-    ctx.fill();
-    ctx.strokeStyle = dark;
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.arc(5, 8, 8, 0.25, Math.PI - 0.25);
-    ctx.stroke();
-    ctx.restore();
-  } else if (id === 'hedgie') {
-    ctx.translate(0, -bob);
-    limb(-6, -10, -6 - sw * 9, 0, 7, '#2a2f3c');
-    limb(6, -10, 6 + sw * 9, 0, 7, '#2a2f3c');
-    ctx.fillStyle = '#3a4152';
-    rr(-20, -46, 40, 38, 10);
-    ctx.fill();
-    limb(-18, -40, -22 + sw * 8, -18, 7, '#3a4152');
-    limb(18, -40, 22 - sw * 8, -18, 7, '#3a4152');
-    ctx.fillStyle = '#f1f3f6';
-    ctx.beginPath();
-    ctx.moveTo(-8, -46);
-    ctx.lineTo(8, -46);
-    ctx.lineTo(0, -30);
-    ctx.fill();
-    ctx.fillStyle = color;
-    ctx.beginPath();
-    ctx.moveTo(-4, -44);
-    ctx.lineTo(4, -44);
-    ctx.lineTo(3, -22);
-    ctx.lineTo(0, -17);
-    ctx.lineTo(-3, -22);
-    ctx.fill();
-    ctx.fillStyle = '#e3c4a4';
-    ctx.beginPath();
-    ctx.arc(0, -60, 16, 0, 7);
-    ctx.fill();
-    ctx.fillStyle = '#2a2f3c';
-    ctx.beginPath();
-    ctx.arc(0, -66, 16, Math.PI, 0);
-    ctx.fill();
-    eye(-6, -61);
-    eye(6, -61);
-  } else if (id === 'autist') {
-    // Shirt, pocket pens, glasses, messy hair, a tablet with a chart on it.
-    ctx.translate(0, -bob);
-    limb(-6, -10, -6 - sw * 9, 0, 7, '#4a5468');
-    limb(6, -10, 6 + sw * 9, 0, 7, '#4a5468');
-    ctx.fillStyle = '#f4f6f9';
-    rr(-20, -48, 40, 40, 10);
-    ctx.fill();
-    limb(-18, -42, -24 + sw * 8, -20, 7, '#f4f6f9');
-    limb(18, -42, 26, -26, 7, '#f4f6f9');
-    // tablet in the front hand
-    ctx.fillStyle = '#1a2030';
-    rr(18, -40, 20, 16, 2);
-    ctx.fill();
-    ctx.strokeStyle = '#3ddc84';
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.moveTo(21, -27);
-    ctx.lineTo(26, -33);
-    ctx.lineTo(29, -30);
-    ctx.lineTo(35, -37);
-    ctx.stroke();
-    ctx.fillStyle = color;
-    rr(-14, -42, 10, 10, 2);
-    ctx.fill();
-    ['#e03a3a', '#2f5fd8', '#141821'].forEach((c, i) => {
-      ctx.fillStyle = c;
-      ctx.fillRect(-13 + i * 3, -48, 2, 8);
-    });
-    ctx.fillStyle = '#efc9a4';
-    ctx.beginPath();
-    ctx.arc(0, -62, 16, 0, 7);
-    ctx.fill();
-    ctx.fillStyle = '#7a4a22';
-    ctx.beginPath();
-    ctx.moveTo(-17, -64);
-    ctx.lineTo(-11, -82);
-    ctx.lineTo(-3, -72);
-    ctx.lineTo(3, -84);
-    ctx.lineTo(9, -72);
-    ctx.lineTo(16, -80);
-    ctx.lineTo(17, -64);
-    ctx.closePath();
-    ctx.fill();
-    ctx.strokeStyle = '#141821';
-    ctx.lineWidth = 2.5;
-    ctx.strokeRect(-13, -66, 11, 8);
-    ctx.strokeRect(2, -66, 11, 8);
-    ctx.beginPath();
-    ctx.moveTo(-2, -62);
-    ctx.lineTo(2, -62);
-    ctx.stroke();
-    eye(-7, -62, 2);
-    eye(7, -62, 2);
-  } else if (id === 'degen') {
-    // The basement gamer: enormous round body, a small head with a double
-    // chin, greasy strands of hair, a headset with a mic, acne, a stained
-    // shirt stretched over the gut, and a drink that never leaves his hand.
-    // He waddles, belly first.
-    const waddle = moving ? Math.sin(t) : 0;
-    const bounce = moving ? Math.abs(Math.sin(t)) * 2 : Math.sin(now / 900) * 1;
-    ctx.translate(0, -bounce);
-    ctx.rotate(waddle * 0.05);
-    // legs: short and wide apart
-    limb(-14, -14, -16 - waddle * 5, 0, 12, '#2d3340');
-    limb(14, -14, 16 + waddle * 5, 0, 12, '#2d3340');
-    ctx.fillStyle = '#1a1e28';
-    ctx.beginPath();
-    ctx.ellipse(-16 - waddle * 5, 1, 9, 4, 0, 0, 7);
-    ctx.ellipse(16 + waddle * 5, 1, 9, 4, 0, 0, 7);
-    ctx.fill();
-    // body: a big egg in a stained shirt
-    ctx.fillStyle = '#d9c64a';
-    ctx.beginPath();
-    ctx.ellipse(0, -36, 34, 34, 0, 0, 7);
-    ctx.fill();
-    // belly hanging out under the shirt
-    ctx.fillStyle = '#e8c39e';
-    ctx.beginPath();
-    ctx.ellipse(0, -10, 26, 9, 0, 0, Math.PI);
-    ctx.fill();
-    // stains and crumbs
-    ctx.fillStyle = 'rgba(120,80,20,0.5)';
-    ctx.beginPath();
-    ctx.arc(10, -40, 6, 0, 7);
-    ctx.arc(-14, -26, 4, 0, 7);
-    ctx.arc(-4, -48, 3, 0, 7);
-    ctx.fill();
-    ctx.fillStyle = '#e8b04a';
-    ctx.fillRect(-10, -20, 3, 2);
-    ctx.fillRect(6, -24, 3, 2);
-    // arms: stubby, one holding the drink, one on an invisible mouse
-    limb(-30, -40, -40 - waddle * 3, -22, 10, '#e8c39e');
-    limb(30, -40, 36, -24, 10, '#e8c39e');
-    ctx.fillStyle = '#e03a3a';
-    rr(32, -40, 10, 18, 2);
-    ctx.fill();
-    ctx.fillStyle = '#fff';
-    ctx.fillRect(34, -36, 6, 2);
-    // player colour: a wristband on the drink hand
-    ctx.fillStyle = color;
-    rr(28, -24, 14, 6, 3);
-    ctx.fill();
-    // neck roll / double chin
-    ctx.fillStyle = '#e8c39e';
-    ctx.beginPath();
-    ctx.ellipse(0, -66, 15, 7, 0, 0, 7);
-    ctx.fill();
-    // head: small, on top
-    ctx.fillStyle = '#e8c39e';
-    ctx.beginPath();
-    ctx.ellipse(0, -80, 14, 13, 0, 0, 7);
-    ctx.fill();
-    // greasy strands of hair
-    ctx.strokeStyle = '#4a3418';
-    ctx.lineWidth = 2.5;
-    ctx.lineCap = 'round';
-    [-10, -5, 0, 5, 10].forEach((hx, k) => {
-      ctx.beginPath();
-      ctx.moveTo(hx, -92);
-      ctx.lineTo(hx + (k - 2) * 3, -84 + (k % 2) * 6);
-      ctx.stroke();
-    });
-    // headset: band over the head, cups, boom mic
-    ctx.strokeStyle = '#222';
-    ctx.lineWidth = 3;
-    ctx.beginPath();
-    ctx.arc(0, -80, 15, Math.PI * 1.1, Math.PI * 1.9);
-    ctx.stroke();
-    ctx.fillStyle = '#222';
-    rr(-18, -84, 6, 10, 2);
-    ctx.fill();
-    rr(12, -84, 6, 10, 2);
-    ctx.fill();
-    ctx.beginPath();
-    ctx.moveTo(15, -76);
-    ctx.quadraticCurveTo(16, -66, 6, -68);
-    ctx.stroke();
-    ctx.beginPath();
-    ctx.arc(5, -68, 2.5, 0, 7);
-    ctx.fill();
-    // face: half-closed eyes, acne, a slack mouth
-    ctx.fillStyle = '#fff';
-    ctx.beginPath();
-    ctx.ellipse(-5, -81, 4, 3, 0, 0, 7);
-    ctx.ellipse(5, -81, 4, 3, 0, 0, 7);
-    ctx.fill();
-    eye(-5, -80, 1.8);
-    eye(5, -80, 1.8);
-    ctx.fillStyle = '#e8c39e';
-    ctx.fillRect(-10, -86, 20, 4); // heavy lids
-    ctx.fillStyle = '#d9484a';
-    [[-9, -74], [8, -76], [-2, -72], [10, -70]].forEach(([ax, ay]) => {
-      ctx.beginPath();
-      ctx.arc(ax, ay, 1.4, 0, 7);
-      ctx.fill();
-    });
-    ctx.strokeStyle = '#7a4a3a';
-    ctx.lineWidth = 1.5;
-    ctx.beginPath();
-    ctx.moveTo(-5, -71);
-    ctx.lineTo(4, -71);
-    ctx.stroke();
-  } else if (id === 'smooth') {
-    // A pink brain that wobbles like jello, on two stubby legs.
-    const wob = Math.sin(now / 110);
-    const wob2 = Math.sin(now / 70 + 1);
-    limb(-8, -8, -8 - sw * 6, 0, 7, '#e88aaa');
-    limb(8, -8, 8 + sw * 6, 0, 7, '#e88aaa');
-    ctx.save();
-    ctx.translate(0, -38 - bob);
-    ctx.scale(1 + wob * 0.07 + (moving ? 0.04 : 0), 1 - wob * 0.07 - (moving ? 0.04 : 0));
-    ctx.rotate(wob2 * 0.04);
-    ctx.fillStyle = '#f2a8c0';
-    ctx.beginPath();
-    ctx.ellipse(0, 0, 34, 30, 0, 0, 7);
-    ctx.fill();
-    ctx.fillStyle = '#e88aaa';
-    ctx.beginPath();
-    ctx.ellipse(-2, 16, 24, 10, 0, 0, 7);
-    ctx.fill();
-    ctx.strokeStyle = '#d8789a';
-    ctx.lineWidth = 3;
-    ctx.beginPath();
-    ctx.moveTo(0, -30);
-    ctx.quadraticCurveTo(4 + wob * 3, -4, 0, 12);
-    ctx.stroke();
-    ctx.fillStyle = 'rgba(255,255,255,0.35)';
-    ctx.beginPath();
-    ctx.ellipse(-12, -14, 9, 5, -0.5, 0, 7);
-    ctx.fill();
-    ctx.fillStyle = '#fff';
-    ctx.beginPath();
-    ctx.arc(-9, -4, 5, 0, 7);
-    ctx.arc(9, -4, 5, 0, 7);
-    ctx.fill();
-    eye(-8 + wob, -4, 2.4);
-    eye(10 + wob, -4, 2.4);
-    ctx.strokeStyle = '#d8789a';
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.arc(0, 4, 6, 0.2, Math.PI - 0.2);
-    ctx.stroke();
-    ctx.restore();
-    ctx.fillStyle = color;
-    rr(-12, -10, 24, 7, 3);
-    ctx.fill();
-  }
+  ch.draw(ctx, { color, now, t, sw, bob, moving, vertical });
   ctx.restore();
 }
 

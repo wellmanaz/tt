@@ -25,7 +25,9 @@ After 12 rounds the richest ape wins, and the colony as a whole needs $60,000 to
 
 ## Characters
 
-Six to pick from, each with a trade-off shown on the character card: Ape, Autist, Degen, Smooth-Brain, Regard (nothing of theirs spoils, but starts poorer and pays more in shops) and Full-Regard (starts with $1,800, pays 30% more in shops, shorter turns). The art for all but Smooth-Brain is cut at load time from `assets/chars/sheet.jpg`; the flat grey background is removed in the browser, so a replacement sheet only needs the same six-cell layout.
+Six to pick from, each with a trade-off shown on the character card: Ape, Autist, Degen, Smooth-Brain, Regard (nothing of theirs spoils, but starts poorer and pays more in shops) and Full-Regard (starts with $1,800, pays 30% more in shops, shorter turns).
+
+Each character is one file in `js/chars/` holding everything about it: stats, the card text, its cell on the art sheet, how it moves, and a drawing in code. `js/chars/index.js` lists the fields and the lobby order; copy a file and add it to the list to make a new character. The art for all but Smooth-Brain is cut at load time from `assets/chars/sheet.jpg`; the flat grey background is removed in the browser, so a replacement sheet only needs the same six-cell layout. How a cut-out moves is its `gait`, a `walk({ ... })` or `roll({ ... })` from `js/chars/gaits.js` whose knobs (stride, arm swing, bob, lean, castor chatter and so on) are set per character.
 
 ## Your own images
 
@@ -35,6 +37,7 @@ A tendies plot shows a fast-food sign instead of a robot. The signs are parodies
 
 - `index.html`, `js/main.js` — browser side: input, lobby, drawing
 - `js/core.js` — game rules and state, no browser code
+- `js/chars/` — one file per character (stats, card text, art cell, gait, fallback drawing); `gaits.js` has the walk and roll animations
 - `js/ai.js` — rule-based AI that produces controller-style input
 - `pad/index.html` — shows every connected controller and its button presses
 - `test/sim.js` — plays AI-only games headless and reports balance statistics
