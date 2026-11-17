@@ -5,5 +5,5 @@ export default {
   pro: 'All in: starts with $1,800',
   con: 'Pays 30% more in shops · 10% shorter turns',
   sprite: [160, 860, 820, 1600],
-  gait: walk({ stride: 0.34, armSwing: 0.25, bob: 2.5, lean: 0.035 }),
+  gait: walk({ stride: 0.34, armSwing: 0.12, bob: 2.5, lean: 0.035 }),
 };

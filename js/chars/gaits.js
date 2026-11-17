@@ -15,13 +15,16 @@ export function still(ctx, sprite) {
   ctx.drawImage(sprite, 0, 0);
 }
 
+// Each cut rotates about a pivot, so a swing opens a wedge of background
+// between the piece and the body; keep stride and armSwing small (a few
+// hundredths to a few tenths of a radian) and the wedges stay a pixel or two.
 export function walk({
   hip = 0.62,
   shoulder = 0.3,
   armWidth = 0.26,
   legPivot = 0.28,
   stride = 0.34,
-  armSwing = 0.25,
+  armSwing = 0.12,
   bob = 2.5,
   lean = 0.035,
   vStride = 0.065,
@@ -43,6 +46,13 @@ export function walk({
     const p = (...args) => part(ctx, sprite, ...args);
     const s = Math.sin(t);
     const c = Math.cos(t);
+    // The upper body without the arms: the band above the shoulders at full
+    // width, then the column between the arm strips. Each pixel of the
+    // picture is drawn exactly once, so nothing shows through the swing.
+    const body = () => {
+      p(0, 0, sw, shoulderY, 0, 0, 0);
+      p(armW, shoulderY, sw - 2 * armW, hipY + sh * 0.08 - shoulderY, 0, 0, 0);
+    };
 
     if (vertical) {
       // Alternating foot lifts; the torso moves less than the legs.
@@ -58,7 +68,7 @@ export function walk({
       ctx.translate(sw / 2, hipY + dy);
       ctx.rotate(s * vSway);
       ctx.translate(-sw / 2, -hipY);
-      p(0, 0, sw, hipY + sh * 0.08, 0, 0, 0);
+      body();
       // Arms counter-swing the legs, with a small secondary shoulder motion.
       p(0, shoulderY, armW, armH, armW, shoulderY,
         -s * vArmSwing - c * vArmSwing * 0.12);
@@ -80,7 +90,7 @@ export function walk({
     ctx.translate(sw / 2, hipY + bodyY);
     ctx.rotate(torsoRot);
     ctx.translate(-sw / 2, -hipY);
-    p(0, 0, sw, hipY + sh * 0.08, 0, 0, 0);
+    body();
     p(0, shoulderY, armW, armH, armW, shoulderY,
       -s * armSwing - c * armSwing * 0.1);
     p(sw - armW, shoulderY, armW, armH, sw - armW, shoulderY,
@@ -130,5 +140,31 @@ export function roll({
     const r = Math.sin(t * rate);
     const tinyPitch = Math.sin(t * 0.5) * wobble;
     p(lean + tinyPitch + r * wobble, 0, (r * chatter) / k);
+  };
+}
+
+// The whole picture bounds along in one piece: a hop each stride with a
+// forward pitch on the way up and a settle on landing. For characters that
+// move as one lump, like an ape on all fours, so nothing has to be cut.
+export function bound({
+  height = 6, // hop height in screen pixels
+  pitch = 0.06, // forward tilt at the top of the hop, in radians
+  squash = 0.03, // how much it flattens on landing (0 for none)
+  vHeight = 4, // hop height going up or down the screen
+} = {}) {
+  return (ctx, sprite, { t = 0, k = 1, moving, vertical }) => {
+    if (!moving) return still(ctx, sprite);
+    const sw = sprite.width;
+    const sh = sprite.height;
+    const hop = Math.max(0, Math.sin(t)); // 0..1, airborne half of the cycle
+    const land = Math.max(0, -Math.sin(t)); // 0..1, on the ground
+    const h = vertical ? vHeight : height;
+    ctx.save();
+    ctx.translate(sw / 2, sh);
+    ctx.translate(0, (-hop * h) / k);
+    ctx.rotate(vertical ? 0 : Math.sin(t) * pitch);
+    ctx.scale(1 + land * squash, 1 - land * squash);
+    ctx.drawImage(sprite, -sw / 2, -sh);
+    ctx.restore();
   };
 }

@@ -2389,12 +2389,16 @@ function drawLobby() {
 
 // Every character in its own lane, walking right, pausing, walking back,
 // all in step.
+// ?freeze=<ms> holds one frame of the walk; ?only=<id> shows one character big.
 function drawWalkTest(now) {
+  if (PARAMS.has('freeze')) now = Number(PARAMS.get('freeze')) || 0;
   drawBackground();
   text('CHARACTER WALK TEST', W / 2, 40, 30, '#3ddc84', 'center');
-  const chars = [...C.CHARACTERS, C.HEDGIE];
+  const only = PARAMS.get('only');
+  const chars = only ? [characterById(only)] : [...C.CHARACTERS, C.HEDGIE];
   const top = 80;
   const laneH = (H - top - 8) / chars.length;
+  const scale = only ? 5 : 1.3;
   const speed = 300; // px/s
   const pause = 1.4; // seconds standing at each end
   const walker = (id, color, x0, x1, feetY) => {
@@ -2407,7 +2411,7 @@ function drawWalkTest(now) {
     else if (tt < leg + pause) [x, facing, moving] = [x1, 1, false];
     else if (tt < 2 * leg + pause) [x, facing, moving] = [x1 - (tt - leg - pause) * speed, -1, true];
     else [x, facing, moving] = [x0, -1, false];
-    drawCharacter(id, x, feetY, 1.3, color, facing, now, moving, false);
+    drawCharacter(id, x, feetY, scale, color, facing, now, moving, false);
   };
   chars.forEach((c, i) => {
     const y0 = top + laneH * i;
@@ -2417,8 +2421,8 @@ function drawWalkTest(now) {
     }
     const color = PCOL[i % PCOL.length];
     text(c.name, 36, y0 + laneH / 2, 24, color);
-    const feetY = y0 + laneH - 12;
-    walker(c.id, color, 300, 1800, feetY);
+    const feetY = y0 + laneH - (only ? 60 : 12);
+    walker(c.id, color, only ? 500 : 300, only ? 1500 : 1800, feetY);
   });
 }
 

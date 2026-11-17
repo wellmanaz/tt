@@ -5,5 +5,5 @@ export default {
   pro: 'Bagholds: tendies and fuel never spoil',
   con: 'Starts with $900 · pays 10% more in shops',
   sprite: [1000, 90, 1780, 850],
-  gait: walk({ stride: 0.34, armSwing: 0.25, bob: 2.5, lean: 0.035 }),
+  gait: walk({ stride: 0.34, armSwing: 0.12, bob: 2.5, lean: 0.035 }),
 };
