@@ -8,15 +8,16 @@
 //   time           turn length multiplier (1 = the full turn)
 //   swing          how hard random events and the YOLO Bar hit (2 = double, both ways)
 //   pro, con       the two lines on the lobby card
-//   draw(ctx, a)   draws the character in code: feet at the origin, facing right,
-//                  about 70px tall. a = { color, now, t, sw, bob, moving, vertical }:
-//                  color is the seat colour (show it somewhere), now is ms, t is a
-//                  walk-cycle phase, sw the limb swing (-1..1) and bob the step
-//                  height while moving.
-// Optional:
+// Art, one of:
 //   sprite         [x0, y0, x1, y1] cell of assets/chars/sheet.jpg in its original
-//                  1792x2400 coordinates; once the sheet loads this cut-out is used
-//                  instead of draw() and animated by `gait`
+//                  1792x2400 coordinates; the cut-out is animated by `gait`. Until
+//                  the sheet has loaded only the coloured ring is drawn.
+//   draw(ctx, a)   for a character with no cell: draws it in code, feet at the
+//                  origin, facing right, about 70px tall.
+//                  a = { color, now, t, sw, bob, moving, vertical }: color is the
+//                  seat colour (show it somewhere), now is ms, t is a walk-cycle
+//                  phase, sw the limb swing (-1..1) and bob the step height.
+// Optional:
 //   gait           how the cut-out moves: walk({...}) or roll({...}) from gaits.js, with
 //                  stride, bob, lean and so on as knobs, or your own (ctx, sprite, a) function
 //   holdsBot       never loses a bot when missing the plot's pad

@@ -1,5 +1,5 @@
-// Hedgie: the house AI that plays empty seats. Not pickable in the lobby,
-// and also what Regard and Full-Regard look like until the sheet loads.
+// Hedgie: the house AI that plays empty seats. Not pickable in the lobby.
+// No cell on the sheet, so it is drawn in code.
 import { rr, eye, limb } from './helpers.js';
 
 export default {

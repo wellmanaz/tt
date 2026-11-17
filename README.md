@@ -8,7 +8,7 @@ A four-player couch economic strategy game for the browser, played with game con
 - Controller test: https://wellmanaz.github.io/tt/pad
 - AI-only demo: https://wellmanaz.github.io/tt/?demo
 - Shorter game: add `?rounds=6`
-- Character walk test: https://wellmanaz.github.io/tt/walk (every character pacing its own lane, sheet art beside the code-drawn version; `?walk` on the game page does the same)
+- Character walk test: https://wellmanaz.github.io/tt/walk (every character pacing its own lane; `?walk` on the game page does the same)
 
 Press A to join, Menu to start. Empty seats are played by Hedgies (AI). Y (or M on a keyboard) toggles the music, which is an original loop synthesised in the browser (`js/music.js`).
 
@@ -28,7 +28,7 @@ After 12 rounds the richest ape wins, and the colony as a whole needs $60,000 to
 
 Six to pick from, each with a trade-off shown on the character card: Ape, Autist, Degen, Smooth-Brain, Regard (nothing of theirs spoils, but starts poorer and pays more in shops) and Full-Regard (starts with $1,800, pays 30% more in shops, shorter turns).
 
-Each character is one file in `js/chars/` holding everything about it: stats, the card text, its cell on the art sheet, how it moves, and a drawing in code. `js/chars/index.js` lists the fields and the lobby order; copy a file and add it to the list to make a new character. The art for all but Smooth-Brain is cut at load time from `assets/chars/sheet.jpg`; the flat grey background is removed in the browser, so a replacement sheet only needs the same six-cell layout. How a cut-out moves is its `gait`, a `walk({ ... })` or `roll({ ... })` from `js/chars/gaits.js` whose knobs (stride, arm swing, bob, lean, castor chatter and so on) are set per character.
+Each character is one file in `js/chars/` holding everything about it: stats, the card text, its cell on the art sheet and how it moves. `js/chars/index.js` lists the fields and the lobby order; copy a file and add it to the list to make a new character. The art for all but Smooth-Brain is cut at load time from `assets/chars/sheet.jpg`; the flat grey background is removed in the browser, so a replacement sheet only needs the same six-cell layout. Smooth-Brain (and the Hedgie AI) have no cell and are drawn in code in their files. How a cut-out moves is its `gait`, a `walk({ ... })` or `roll({ ... })` from `js/chars/gaits.js` whose knobs (stride, arm swing, bob, lean, castor chatter and so on) are set per character.
 
 ## Your own images
 

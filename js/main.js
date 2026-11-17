@@ -822,10 +822,9 @@ function drawBot(x, y, outfit, scale = 1, opts = {}) {
 // Characters. Each one is a file in js/chars/ (fields in js/chars/index.js).
 // Feet at y, about 70px tall at scale 1; `facing` is 1 for right, -1 for
 // left. Cut-out art from the sheet moves by the character's `gait`
-// (js/chars/gaits.js). Until the sheet loads, or for characters without a
-// cell, the character's own draw() is used; it gets the seat colour so a
-// band or accessory can show which player it is.
-function drawCharacter(id, x, y, scale, color, facing = 1, now = 0, moving = false, vertical = false, drawn = false) {
+// (js/chars/gaits.js); a character without a cell has its own draw(), which
+// gets the seat colour so a band or accessory can show which player it is.
+function drawCharacter(id, x, y, scale, color, facing = 1, now = 0, moving = false, vertical = false) {
   const ch = characterById(id);
   ctx.save();
   ctx.translate(x, y);
@@ -833,7 +832,7 @@ function drawCharacter(id, x, y, scale, color, facing = 1, now = 0, moving = fal
   const t = now / 95;
   const sw = moving && !vertical ? Math.sin(t) : 0; // limb swing, -1..1
   const bob = moving ? Math.abs(Math.sin(t)) * (vertical ? 3 : 2) : 0;
-  const sprite = drawn ? null : SPRITES[id]; // drawn: skip the cut-out, show the code version
+  const sprite = SPRITES[id];
   if (sprite) {
     // Cut-out art: feet on the origin, 78px tall at scale 1, standing on a
     // ring in the player's colour. The gait then draws in sprite pixels.
@@ -856,11 +855,20 @@ function drawCharacter(id, x, y, scale, color, facing = 1, now = 0, moving = fal
     ctx.restore();
     return;
   }
-  ctx.fillStyle = 'rgba(0,0,0,0.35)';
-  ctx.beginPath();
-  ctx.ellipse(0, 2, 28, 7, 0, 0, 7);
-  ctx.fill();
-  ch.draw(ctx, { color, now, t, sw, bob, moving, vertical });
+  if (ch.draw) {
+    ctx.fillStyle = 'rgba(0,0,0,0.35)';
+    ctx.beginPath();
+    ctx.ellipse(0, 2, 28, 7, 0, 0, 7);
+    ctx.fill();
+    ch.draw(ctx, { color, now, t, sw, bob, moving, vertical });
+  } else {
+    // sheet not loaded yet: just the ring
+    ctx.fillStyle = color;
+    ctx.globalAlpha = 0.8;
+    ctx.beginPath();
+    ctx.ellipse(0, 3, 30, 8, 0, 0, 7);
+    ctx.fill();
+  }
   ctx.restore();
 }
 
@@ -2380,19 +2388,16 @@ function drawLobby() {
 // ---------- ?walk: character walk test ----------
 
 // Every character in its own lane, walking right, pausing, walking back,
-// all in step: the sheet cut-out on the left and the code-drawn version
-// (what shows until the sheet loads) on the right.
+// all in step.
 function drawWalkTest(now) {
   drawBackground();
   text('CHARACTER WALK TEST', W / 2, 40, 30, '#3ddc84', 'center');
-  text('from the sheet', 720, 82, 18, '#8a93a6', 'center', 500);
-  text('drawn in code', 1580, 82, 18, '#8a93a6', 'center', 500);
   const chars = [...C.CHARACTERS, C.HEDGIE];
-  const top = 104;
+  const top = 80;
   const laneH = (H - top - 8) / chars.length;
   const speed = 300; // px/s
   const pause = 1.4; // seconds standing at each end
-  const walker = (id, color, x0, x1, feetY, drawn) => {
+  const walker = (id, color, x0, x1, feetY) => {
     const d = x1 - x0;
     const leg = d / speed;
     const period = 2 * (leg + pause);
@@ -2402,7 +2407,7 @@ function drawWalkTest(now) {
     else if (tt < leg + pause) [x, facing, moving] = [x1, 1, false];
     else if (tt < 2 * leg + pause) [x, facing, moving] = [x1 - (tt - leg - pause) * speed, -1, true];
     else [x, facing, moving] = [x0, -1, false];
-    drawCharacter(id, x, feetY, 1.3, color, facing, now, moving, false, drawn);
+    drawCharacter(id, x, feetY, 1.3, color, facing, now, moving, false);
   };
   chars.forEach((c, i) => {
     const y0 = top + laneH * i;
@@ -2413,8 +2418,7 @@ function drawWalkTest(now) {
     const color = PCOL[i % PCOL.length];
     text(c.name, 36, y0 + laneH / 2, 24, color);
     const feetY = y0 + laneH - 12;
-    walker(c.id, color, 300, 1140, feetY, false);
-    walker(c.id, color, 1340, 1820, feetY, true);
+    walker(c.id, color, 300, 1800, feetY);
   });
 }
 
