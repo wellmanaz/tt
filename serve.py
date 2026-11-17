@@ -11,9 +11,6 @@ class NoCache(SimpleHTTPRequestHandler):
         self.send_header('Expires', '0')
         super().end_headers()
 
-    def log_message(self, fmt, *args):
-        pass
-
 
 port = int(sys.argv[1]) if len(sys.argv) > 1 else 8000
 print(f'Tendie Town at http://localhost:{port}/  (walk test: /walk/, controllers: /pad/)')
