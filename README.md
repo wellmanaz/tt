@@ -43,10 +43,11 @@ A tendies plot shows a fast-food sign instead of a robot. The signs are parodies
 - `pad/index.html` — shows every connected controller and its button presses
 - `walk/index.html` — all characters walking back and forth, for tuning their files
 - `test/sim.js` — plays AI-only games headless and reports balance statistics
+- `serve.py` — local server with browser caching disabled
 
 ## Run locally
 
 ```sh
-python3 -m http.server 8000   # then open http://localhost:8000/
+python3 serve.py              # then open http://localhost:8000/ (serves with caching off, so edits show on reload)
 node test/sim.js 100          # AI-only test games
 ```
