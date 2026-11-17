@@ -8,7 +8,7 @@ A four-player couch economic strategy game for the browser, played with game con
 - Controller test: https://wellmanaz.github.io/tt/pad
 - AI-only demo: https://wellmanaz.github.io/tt/?demo
 - Shorter game: add `?rounds=6`
-- Character walk test: https://wellmanaz.github.io/tt/?walk (every character pacing its own lane, sheet art beside the code-drawn version)
+- Character walk test: https://wellmanaz.github.io/tt/walk (every character pacing its own lane, sheet art beside the code-drawn version; `?walk` on the game page does the same)
 
 Press A to join, Menu to start. Empty seats are played by Hedgies (AI). Y (or M on a keyboard) toggles the music, which is an original loop synthesised in the browser (`js/music.js`).
 
@@ -41,6 +41,7 @@ A tendies plot shows a fast-food sign instead of a robot. The signs are parodies
 - `js/chars/` — one file per character (stats, card text, art cell, gait, fallback drawing); `gaits.js` has the walk and roll animations
 - `js/ai.js` — rule-based AI that produces controller-style input
 - `pad/index.html` — shows every connected controller and its button presses
+- `walk/index.html` — all characters walking back and forth, for tuning their files
 - `test/sim.js` — plays AI-only games headless and reports balance statistics
 
 ## Run locally

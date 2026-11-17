@@ -12,7 +12,7 @@ const SEATS = 4;
 const PCOL = ['#ff6b6b', '#4d9dff', '#ffd84d', '#6be3a2'];
 const PARAMS = new URLSearchParams(location.search);
 const DEMO = PARAMS.has('demo'); // AI-only game that starts by itself
-const WALK = PARAMS.has('walk'); // test screen: every character walking back and forth
+const WALK = PARAMS.has('walk') || /\/walk\/?$/.test(location.pathname); // test screen (walk/): every character walking back and forth
 const SKIP = Number(PARAMS.get('skip')) || 0; // demo only: seconds to fast-forward at start
 const UNTIL = PARAMS.get('until') || ''; // demo only: fast-forward until a phase (e.g. auction:trade), then SKIP more seconds
 const opts = { rounds: Number(PARAMS.get('rounds')) === 6 ? 6 : 12, protect: PARAMS.has('protect'), humanPace: PARAMS.get('pace') === 'human', ownBots: PARAMS.has('ownbots') };
@@ -322,7 +322,7 @@ const SPRITES = {};
       SPRITES[ch.id] = out;
     }
   };
-  sheet.src = 'assets/chars/sheet.jpg';
+  sheet.src = new URL('../assets/chars/sheet.jpg', import.meta.url); // relative to this file, so walk/ works too
 }
 
 // Fast-food signs for tendies plots: knock-offs of the big chains, drawn
@@ -331,7 +331,7 @@ const foodImages = [];
 for (let i = 1; i <= 24; i++) {
   const img = new Image();
   img.onload = () => foodImages.push(img);
-  img.src = `assets/food/${i}.png`;
+  img.src = new URL(`../assets/food/${i}.png`, import.meta.url);
 }
 
 // Each sign: background, name, name colour, and an emblem drawn in an
