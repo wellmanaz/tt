@@ -168,3 +168,15 @@ export function bound({
     ctx.restore();
   };
 }
+
+// Real animation frames from the character's own sheet (`sheet` in its
+// file): plays them in order while moving, holds the standing frame when
+// not. The frames are side views facing right; main.js flips them to face
+// left.
+export function frames({ fps = 60 } = {}) {
+  return (ctx, sprite, { now = 0, moving, frames: list }) => {
+    if (!moving || !list || !list.length) return still(ctx, sprite);
+    const f = list[Math.floor((now / 1000) * fps) % list.length];
+    ctx.drawImage(f, 0, 0);
+  };
+}

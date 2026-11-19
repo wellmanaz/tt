@@ -5,6 +5,7 @@ import { makeAI, aiInput } from './ai.js';
 import { Music } from './music.js';
 import { characterById } from './chars/index.js';
 import { still } from './chars/gaits.js';
+import { keyBackground } from './chars/cutout.js';
 
 const W = 1920;
 const H = 1080;
@@ -256,11 +257,35 @@ function drawBackground() {
   });
 }
 
-// Character art: cut from one sheet (assets/chars/sheet.jpg). Each
-// character file names its cell in the sheet's original 1792x2400
-// coordinates; the flat grey background is flood-filled away from the edges
-// and the sprite trimmed.
-const SPRITES = {};
+// Character art. Two sources, both cut out with js/chars/cutout.js:
+//  - the hand-drawn sheet (assets/chars/sheet.jpg): a character's `sprite`
+//    names its cell in the sheet's original 1792x2400 coordinates;
+//  - a character's own animation sheet (`sheet` in its file): a grid of
+//    frames, all trimmed to one shared box so they line up.
+const SPRITES = {}; // id -> standing picture
+const FRAMES = {}; // id -> [pictures] for characters with an animation sheet
+const ASSETS = new URL('../assets/chars/', import.meta.url); // relative to this file, so walk/ works too
+
+// Cut one cell out of an image: background keyed away, trimmed to what is
+// left (or to `box` if given, so a set of frames shares one size).
+function cutCell(img, x0, y0, w, h, box = null) {
+  const cv = document.createElement('canvas');
+  cv.width = w;
+  cv.height = h;
+  const g = cv.getContext('2d');
+  g.drawImage(img, x0, y0, w, h, 0, 0, w, h);
+  const im = g.getImageData(0, 0, w, h);
+  const b = keyBackground(im.data, w, h);
+  if (!b) return null;
+  g.putImageData(im, 0, 0);
+  const [minX, minY, maxX, maxY] = box || b;
+  const out = document.createElement('canvas');
+  out.width = maxX - minX + 1;
+  out.height = maxY - minY + 1;
+  out.getContext('2d').drawImage(cv, minX, minY, out.width, out.height, 0, 0, out.width, out.height);
+  return { canvas: out, box: b };
+}
+
 {
   const sheet = new Image();
   sheet.onload = () => {
@@ -268,61 +293,38 @@ const SPRITES = {};
     for (const ch of C.CHARACTERS) {
       if (!ch.sprite) continue;
       const [x0, y0, x1, y1] = ch.sprite.map((v) => Math.round(v * k));
-      const w = x1 - x0;
-      const h = y1 - y0;
-      const cv = document.createElement('canvas');
-      cv.width = w;
-      cv.height = h;
-      const g = cv.getContext('2d');
-      g.drawImage(sheet, x0, y0, w, h, 0, 0, w, h);
-      const im = g.getImageData(0, 0, w, h);
-      const d = im.data;
-      // background colour: average of the four corners
-      let br = 0, bg = 0, bb = 0;
-      [[0, 0], [w - 1, 0], [0, h - 1], [w - 1, h - 1]].forEach(([cx, cy]) => {
-        const o = (cy * w + cx) * 4;
-        br += d[o] / 4;
-        bg += d[o + 1] / 4;
-        bb += d[o + 2] / 4;
-      });
-      const near = (o) => Math.abs(d[o] - br) + Math.abs(d[o + 1] - bg) + Math.abs(d[o + 2] - bb) < 72;
-      const seen = new Uint8Array(w * h);
-      const stack = [];
-      for (let x = 0; x < w; x++) stack.push(x, x + (h - 1) * w);
-      for (let y = 0; y < h; y++) stack.push(y * w, y * w + w - 1);
-      while (stack.length) {
-        const i = stack.pop();
-        if (seen[i]) continue;
-        seen[i] = 1;
-        if (!near(i * 4)) continue;
-        d[i * 4 + 3] = 0;
-        const x = i % w;
-        const y = (i - x) / w;
-        if (x > 0) stack.push(i - 1);
-        if (x < w - 1) stack.push(i + 1);
-        if (y > 0) stack.push(i - w);
-        if (y < h - 1) stack.push(i + w);
-      }
-      // soften the edge: half-transparent fringe where the fill stopped
-      let minX = w, minY = h, maxX = 0, maxY = 0;
-      for (let i = 0; i < w * h; i++) {
-        if (d[i * 4 + 3] === 0) continue;
-        const x = i % w;
-        const y = (i - x) / w;
-        if (x < minX) minX = x;
-        if (x > maxX) maxX = x;
-        if (y < minY) minY = y;
-        if (y > maxY) maxY = y;
-      }
-      g.putImageData(im, 0, 0);
-      const out = document.createElement('canvas');
-      out.width = maxX - minX + 1;
-      out.height = maxY - minY + 1;
-      out.getContext('2d').drawImage(cv, minX, minY, out.width, out.height, 0, 0, out.width, out.height);
-      SPRITES[ch.id] = out;
+      const cut = cutCell(sheet, x0, y0, x1 - x0, y1 - y0);
+      if (cut) SPRITES[ch.id] = cut.canvas;
     }
   };
-  sheet.src = new URL('../assets/chars/sheet.jpg', import.meta.url); // relative to this file, so walk/ works too
+  sheet.src = new URL('sheet.jpg', ASSETS);
+}
+for (const ch of C.CHARACTERS) {
+  if (!ch.sheet) continue;
+  const { src, cols, rows, count, stand = 0 } = ch.sheet;
+  const img = new Image();
+  img.onload = () => {
+    const cw = img.width / cols;
+    const chh = img.height / rows;
+    const cell = (i) => [Math.round((i % cols) * cw), Math.round(Math.floor(i / cols) * chh), Math.round(cw), Math.round(chh)];
+    // first pass: the box every frame fits in
+    let box = null;
+    for (let i = 0; i < count; i++) {
+      const cut = cutCell(img, ...cell(i));
+      if (!cut) continue;
+      const b = cut.box;
+      box = box ? [Math.min(box[0], b[0]), Math.min(box[1], b[1]), Math.max(box[2], b[2]), Math.max(box[3], b[3])] : b;
+    }
+    if (!box) return;
+    const list = [];
+    for (let i = 0; i < count; i++) {
+      const cut = cutCell(img, ...cell(i), box);
+      if (cut) list.push(cut.canvas);
+    }
+    FRAMES[ch.id] = list;
+    SPRITES[ch.id] = list[stand] || list[0];
+  };
+  img.src = new URL(src, ASSETS);
 }
 
 // Fast-food signs for tendies plots: knock-offs of the big chains, drawn
@@ -331,7 +333,7 @@ const foodImages = [];
 for (let i = 1; i <= 24; i++) {
   const img = new Image();
   img.onload = () => foodImages.push(img);
-  img.src = new URL(`../assets/food/${i}.png`, import.meta.url);
+  img.src = new URL(`../food/${i}.png`, ASSETS);
 }
 
 // Each sign: background, name, name colour, and an emblem drawn in an
@@ -851,7 +853,7 @@ function drawCharacter(id, x, y, scale, color, facing = 1, now = 0, moving = fal
     ctx.globalAlpha = 1;
     ctx.translate(-W / 2, -H);
     ctx.scale(k, k);
-    (ch.gait || still)(ctx, sprite, { t, now, k, moving, vertical });
+    (ch.gait || still)(ctx, sprite, { t, now, k, moving, vertical, frames: FRAMES[id] });
     ctx.restore();
     return;
   }

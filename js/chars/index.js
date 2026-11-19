@@ -12,13 +12,17 @@
 //   sprite         [x0, y0, x1, y1] cell of assets/chars/sheet.jpg in its original
 //                  1792x2400 coordinates; the cut-out is animated by `gait`. Until
 //                  the sheet has loaded only the coloured ring is drawn.
+//   sheet          { src, cols, rows, count, stand } an animation sheet of its own in
+//                  assets/chars/ (e.g. a Ludo walk cycle): a grid of `count` frames
+//                  read left to right, top to bottom, facing right; `stand` is the
+//                  frame shown when still. Use with gait: frames({ fps }).
 //   draw(ctx, a)   for a character with no cell: draws it in code, feet at the
 //                  origin, facing right, about 70px tall.
 //                  a = { color, now, t, sw, bob, moving, vertical }: color is the
 //                  seat colour (show it somewhere), now is ms, t is a walk-cycle
 //                  phase, sw the limb swing (-1..1) and bob the step height.
 // Optional:
-//   gait           how the cut-out moves: walk({...}), roll({...}) or bound({...}) from gaits.js, with
+//   gait           how the cut-out moves: walk({...}), roll({...}), bound({...}) or frames({...}) from gaits.js, with
 //                  stride, bob, lean and so on as knobs, or your own (ctx, sprite, a) function
 //   holdsBot       never loses a bot when missing the plot's pad
 //   adjBonus       bonus for a same-tool neighbour (default 1)
