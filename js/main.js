@@ -2392,10 +2392,23 @@ function drawLobby() {
 // Every character in its own lane, walking right, pausing, walking back,
 // all in step.
 // ?freeze=<ms> holds one frame of the walk; ?only=<id> shows one character big.
+// Space or a click pauses and resumes; the walkers' clock stops with them.
+let walkPaused = false;
+let walkClock = 0;
+let walkLast = 0;
+if (WALK) {
+  const toggle = () => { walkPaused = !walkPaused; };
+  window.addEventListener('keydown', (e) => { if (e.code === 'Space') { e.preventDefault(); toggle(); } });
+  canvas.addEventListener('mousedown', toggle);
+}
 function drawWalkTest(now) {
-  if (PARAMS.has('freeze')) now = Number(PARAMS.get('freeze')) || 0;
+  if (!walkLast) walkLast = now;
+  if (!walkPaused) walkClock += now - walkLast;
+  walkLast = now;
+  now = PARAMS.has('freeze') ? Number(PARAMS.get('freeze')) || 0 : walkClock;
   drawBackground();
   text('CHARACTER WALK TEST', W / 2, 40, 30, '#3ddc84', 'center');
+  text(walkPaused ? 'PAUSED · space or click to resume' : 'space or click to pause', W / 2, 72, 18, walkPaused ? '#ffd84d' : '#8a93a6', 'center', 500);
   const only = PARAMS.get('only');
   const chars = only ? [characterById(only)] : [...C.CHARACTERS, C.HEDGIE];
   const top = 80;
