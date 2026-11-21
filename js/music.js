@@ -134,6 +134,17 @@ export class Music {
     this.intensity = v;
   }
 
+  // Called every frame: if the streamed track is meant to be playing but the
+  // browser has left it stopped (a dropped stream, a console suspending
+  // audio), nudge it back; a retry every two seconds, never a tight loop.
+  keepAlive(now) {
+    if (!this.custom || !this.playing || this.paused) return;
+    if (!this.custom.paused || this.custom.error) return;
+    if (now - (this.retryAt || 0) < 2000) return;
+    this.retryAt = now;
+    this.custom.play().catch(() => {});
+  }
+
   // Turn the music well down (not off) so the floor's pings and dings carry.
   setDucked(d) {
     if (this.ducked === d) return;

@@ -2525,6 +2525,7 @@ function frame(now) {
   pollPads();
   if (keyboardInput().music || padIn.some((p) => p && p.music)) music.toggleMute();
   music.setPaused(false);
+  music.keepAlive(now);
   if (game) {
     // Turned down, not off, on the trading floor and at land auctions so
     // the bidding is audible: stopping and restarting it felt like a fault.
