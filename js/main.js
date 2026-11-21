@@ -1837,7 +1837,7 @@ function drawAuction() {
     // Sellers parked near the top get their tag below the line instead.
     const tagY = buyer || a.price[i] > a.axisMax * 0.88 ? y + 22 : y - 128;
     text(money(a.price[i]), x, tagY, 22, '#fff', 'center', 800);
-    const status = a.bounced[i] || (a.active[i] ? '' : 'stepped off');
+    const status = a.bounced[i] === 'backed off' ? 'backed off · B rejoins' : a.bounced[i] || (a.active[i] ? '' : 'stepped off');
     text(status ? `${p.name} · ${status}` : p.name, x, tagY + 24, 16, '#c8d2e3', 'center', 500);
     const n = buyer ? a.bought[i] : a.sold[i];
     if (n) text(buyer ? `+${n}` : `−${n}`, x + 84, buyer ? y + 30 : y - 40, 24, buyer ? '#6be3a2' : '#ff8ad8', 'center', 800);
@@ -1849,7 +1849,7 @@ function drawAuction() {
   else if (a.trades) label = `${a.trades} traded, average ${money(a.sum / a.trades)}`;
   else label = 'No trades';
   text(label, W / 2, 910, 30, '#fff', 'center', 800);
-  if (a.stage === 'trade') text('Buyers push UP, sellers push DOWN · when a buyer meets a seller, one unit trades per tick · sold out sends you to the top, broke to the bottom · if nobody moves for 3s the floor closes · B steps off', W / 2, 943, 20, '#9aa7bd', 'center', 500);
+  if (a.stage === 'trade') text('Buyers push UP, sellers push DOWN · when a buyer meets a seller, one unit trades per tick · sold out sends you to the top, broke to the bottom · if nobody moves for 3s the floor closes · B steps off, B again steps back in', W / 2, 943, 20, '#9aa7bd', 'center', 500);
 }
 
 // ---------- report, summary, result ----------
@@ -2524,11 +2524,17 @@ function frame(now) {
   }
   pollPads();
   if (keyboardInput().music || padIn.some((p) => p && p.music)) music.toggleMute();
+  music.setPaused(false);
   if (game) {
-    music.setIntensity(game.phase === 'production' || game.phase === 'summary' ? 0.6 : 1);
-    // Quiet on the trading floor and at land auctions so the bidding is audible.
-    music.setPaused(game.phase === 'auction' || game.phase === 'land');
-  } else music.setPaused(false);
+    // Turned down, not off, on the trading floor and at land auctions so
+    // the bidding is audible: stopping and restarting it felt like a fault.
+    const bidding = game.phase === 'auction' || game.phase === 'land';
+    music.setDucked(bidding);
+    music.setIntensity(bidding ? 0.4 : game.phase === 'production' || game.phase === 'summary' ? 0.6 : 1);
+  } else {
+    music.setDucked(false);
+    music.setIntensity(1);
+  }
 
   if (mode === 'lobby') {
     if (DEMO) {

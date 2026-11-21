@@ -1111,8 +1111,16 @@ function updateAuction(s, inputs, dt) {
     const lines = auctionLines(s, a);
     const storeSells = good !== 'diamonds' && st.stock[good] > 0;
     s.players.forEach((p, i) => {
-      if (!a.active[i]) return;
       const inp = inputs[i];
+      if (!a.active[i]) {
+        // Backed off by choice? B again steps back onto the floor, from the
+        // parked spot. Sold out or broke stays out.
+        if (inp.b && a.bounced[i] === 'backed off') {
+          a.active[i] = true;
+          a.bounced[i] = null;
+        }
+        return;
+      }
       if (inp.b) {
         // Done: back right off the floor so nobody can trade against you.
         a.active[i] = false;

@@ -72,6 +72,7 @@ export class Music {
     this.timer = null;
     this.intensity = 1;
     this.paused = false;
+    this.ducked = false;
     this.custom = null; // an <audio> element playing a track the player supplied
   }
 
@@ -131,6 +132,13 @@ export class Music {
   // Lower the band a little during screens that need concentration.
   setIntensity(v) {
     this.intensity = v;
+  }
+
+  // Turn the music well down (not off) so the floor's pings and dings carry.
+  setDucked(d) {
+    if (this.ducked === d) return;
+    this.ducked = d;
+    if (this.custom) this.custom.volume = d ? 0.12 : 0.5;
   }
 
   // Pause the band (sound effects still play). Resumes where it left off.

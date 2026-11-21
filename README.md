@@ -12,7 +12,7 @@ A four-player couch economic strategy game for the browser, played with game con
 
 Press A to join, Menu to start. Empty seats are played by Hedgies (AI). Y (or M on a keyboard) toggles the music, which is an original loop synthesised in the browser (`js/music.js`).
 
-By default the game streams the M.U.L.E. main theme from the site that hosts it (no copy is stored in this repository) and falls back to its own synthesised loop (`js/music.js`) if that fails to load. `?music=synth` forces the built-in loop; `?music=<url>` plays any other audio file. Music pauses during auctions.
+By default the game streams the M.U.L.E. main theme from the site that hosts it (no copy is stored in this repository) and falls back to its own synthesised loop (`js/music.js`) if that fails to load. `?music=synth` forces the built-in loop; `?music=<url>` plays any other audio file. Music is turned down (not off) during auctions so the bidding is audible.
 
 ## A round
 
