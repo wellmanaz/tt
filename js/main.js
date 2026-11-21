@@ -1777,20 +1777,27 @@ function drawAuction() {
   text('SELLERS ▼', 1600, top + 16, 20, '#ff8ad8', 'right', 800);
   text('BUYERS ▲', 1600, bottom - 16, 20, '#6be3a2', 'right', 800);
 
-  const dashed = (price, color, label) => {
+  const nowMs = performance.now();
+  const flash = auctionFlashes(a, nowMs);
+  const dashed = (price, color, label, hot) => {
     const y = yOf(price);
+    if (hot > 0) {
+      // the Exchange just traded: a bright glow spreads out from its line
+      ctx.fillStyle = `rgba(255,255,255,${0.35 * hot})`;
+      ctx.fillRect(300, y - 4 - 10 * (1 - hot), 1320, 8 + 20 * (1 - hot));
+    }
     ctx.strokeStyle = color;
     ctx.setLineDash([10, 8]);
-    ctx.lineWidth = 3;
+    ctx.lineWidth = hot > 0 ? 3 + 4 * hot : 3;
     ctx.beginPath();
     ctx.moveTo(300, y);
     ctx.lineTo(1620, y);
     ctx.stroke();
     ctx.setLineDash([]);
-    text(label, 1630, y, 20, color, 'left', 600);
+    text(label, 1630, y, 20, hot > 0 ? '#fff' : color, 'left', 600);
   };
-  if (sells) dashed(st.sell[a.good], 'rgba(61,220,132,0.6)', `Exchange sells ${money(st.sell[a.good])}`);
-  dashed(st.buy[a.good], 'rgba(255,138,216,0.6)', `Exchange buys ${money(st.buy[a.good])}`);
+  if (sells) dashed(st.sell[a.good], 'rgba(61,220,132,0.6)', `Exchange sells ${money(st.sell[a.good])}`, flashAmt(flash.store.sell, nowMs));
+  dashed(st.buy[a.good], 'rgba(255,138,216,0.6)', `Exchange buys ${money(st.buy[a.good])}`, flashAmt(flash.store.buy, nowMs));
 
   const L = a.lines || {};
   const solid = (price, color, label, above) => {
@@ -1810,10 +1817,22 @@ function drawAuction() {
     const role = a.roles[i];
     const buyer = role === 'buy';
     const y = yOf(a.price[i]);
+    const hot = flashAmt(flash.seat[i], nowMs);
     ctx.globalAlpha = a.active[i] ? 1 : 0.4;
+    if (hot > 0) {
+      // just traded: an expanding ring around the trader and a white-hot bar
+      const r = 70 + 90 * (1 - hot);
+      ctx.strokeStyle = `rgba(255,255,255,${0.9 * hot})`;
+      ctx.lineWidth = 6 * hot + 1;
+      ctx.beginPath();
+      ctx.arc(x, y - 55, r, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.fillStyle = `rgba(255,255,255,${0.6 * hot})`;
+      ctx.fillRect(x - 50 - 30 * hot, y - 3 - 6 * hot, 100 + 60 * hot, 6 + 12 * hot);
+    }
     ctx.fillStyle = PCOL[i];
     ctx.fillRect(x - 50, y - 3, 100, 6);
-    drawTrader(p, i, x, y, buyer, a.active[i] ? vel[i] : 0, a.active[i], !!a.bounced[i], performance.now());
+    drawTrader(p, i, x, y, buyer, a.active[i] ? vel[i] : 0, a.active[i], !!a.bounced[i], nowMs, hot);
     // Sellers parked at the very top get their tag below the line instead.
     // Sellers parked near the top get their tag below the line instead.
     const tagY = buyer || a.price[i] > a.axisMax * 0.88 ? y + 22 : y - 128;
@@ -1953,6 +1972,43 @@ function drawGoodChart(gi, age, top, bottom) {
 
 // Price movement per seat, smoothed, so the characters can react to it.
 const aucPrev = { key: '', price: [0, 0, 0, 0], vel: [0, 0, 0, 0], t: 0 };
+
+// Flashes on the floor: every trade pings and lights up the two sides for
+// a moment. Trades are spotted by watching the auction's counters grow.
+const FLASH = 450; // ms
+const aucFlash = { key: '', trades: 0, bought: [], sold: [], seat: [0, 0, 0, 0], store: { buy: 0, sell: 0 } };
+function auctionFlashes(a, now) {
+  const key = `${game.round}:${a.gi}`;
+  if (aucFlash.key !== key) {
+    aucFlash.key = key;
+    aucFlash.trades = a.trades;
+    aucFlash.bought = a.bought.slice();
+    aucFlash.sold = a.sold.slice();
+    aucFlash.seat = a.price.map(() => 0);
+    aucFlash.store = { buy: 0, sell: 0 };
+    return aucFlash;
+  }
+  if (a.trades !== aucFlash.trades) {
+    let players = 0;
+    a.bought.forEach((n, i) => { if (n !== aucFlash.bought[i]) { aucFlash.seat[i] = now; players++; } });
+    a.sold.forEach((n, i) => { if (n !== aucFlash.sold[i]) { aucFlash.seat[i] = now; players++; } });
+    const deals = a.trades - aucFlash.trades;
+    // Fewer player sides than deals means the Exchange took the other side.
+    if (players < deals * 2) {
+      const boughtByPlayers = a.bought.reduce((t, n, i) => t + n - aucFlash.bought[i], 0);
+      const soldByPlayers = a.sold.reduce((t, n, i) => t + n - aucFlash.sold[i], 0);
+      if (boughtByPlayers > soldByPlayers) aucFlash.store.sell = now; // the Exchange sold
+      if (soldByPlayers > boughtByPlayers) aucFlash.store.buy = now; // the Exchange bought
+    }
+    aucFlash.trades = a.trades;
+    aucFlash.bought = a.bought.slice();
+    aucFlash.sold = a.sold.slice();
+    music.ping();
+  }
+  return aucFlash;
+}
+// 1 right as a flash starts, fading to 0 over FLASH ms.
+const flashAmt = (since, now) => (since ? Math.max(0, 1 - (now - since) / FLASH) : 0);
 function auctionVelocity(a, now) {
   const key = `${game.round}:${a.gi}`;
   const dt = Math.max(0.001, (now - aucPrev.t) / 1000);
@@ -1973,13 +2029,18 @@ function auctionVelocity(a, now) {
 
 // A trader on the floor: hovering when still, jetpacking up when raising,
 // parachuting down when lowering, and spinning off when bounced.
-function drawTrader(p, i, x, y, buyer, vel, active, bounced, now) {
+function drawTrader(p, i, x, y, buyer, vel, active, bounced, now, hot = 0) {
   const up = vel > 4;
   const down = vel < -4;
   const hover = Math.sin(now / 260 + i) * 3;
   ctx.save();
   ctx.translate(x, y + (up || down ? 0 : hover));
-  ctx.scale(1.5, 1.5);
+  // a trade lights the figure up: white glow and a quick pop in size
+  if (hot > 0) {
+    ctx.shadowColor = `rgba(255,255,255,${hot})`;
+    ctx.shadowBlur = 40 * hot;
+  }
+  ctx.scale(1.5 + 0.25 * hot, 1.5 + 0.25 * hot);
   if (bounced) {
     // back at the top (sold out) or the bottom (broke), standing quietly
     drawCharacter(p.char, 0, 0, 1, PCOL[i], 1, now, false);

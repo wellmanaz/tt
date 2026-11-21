@@ -188,6 +188,23 @@ export class Music {
     });
   }
 
+  // One short, bright tick: a unit just changed hands on the trading floor.
+  ping() {
+    if (!this.ctx || this.muted) return;
+    const t = this.ctx.currentTime;
+    const o = this.ctx.createOscillator();
+    const g = this.ctx.createGain();
+    o.type = 'sine';
+    o.frequency.setValueAtTime(1760, t);
+    o.frequency.exponentialRampToValueAtTime(1320, t + 0.12);
+    g.gain.setValueAtTime(0.16, t);
+    g.gain.exponentialRampToValueAtTime(0.001, t + 0.16);
+    o.connect(g);
+    g.connect(this.master);
+    o.start(t);
+    o.stop(t + 0.18);
+  }
+
   schedule() {
     const ahead = this.ctx.currentTime + 0.2;
     while (this.nextTime < ahead) {
