@@ -1151,23 +1151,28 @@ function updateAuction(s, inputs, dt) {
         const w = netWorth(s, p) - netWorth(s, other);
         return w < 0 || (w === 0 && s.rng() < 0.5);
       };
+      // Bids and asks are compared as they are, not rounded: a buyer parked
+      // on a seller's line sits at exactly the seller's price, and rounding
+      // the bid down and the ask up kept them a dollar apart for ever.
       let buyer = null;
       s.players.forEach((p, i) => {
         if (!a.active[i] || a.roles[i] !== 'buy' || p.money < a.price[i]) return;
-        const pr = Math.floor(a.price[i]);
+        const pr = a.price[i];
         if (!buyer || pr > buyer.price || (pr === buyer.price && beats(p, s.players[buyer.seat]))) buyer = { seat: i, price: pr };
       });
       if (!buyer || buyer.price < st.buy[good]) buyer = { seat: -1, price: st.buy[good] };
       let seller = null;
       s.players.forEach((p, i) => {
         if (!a.active[i] || a.roles[i] !== 'sell') return;
-        const pr = Math.ceil(a.price[i]);
+        const pr = a.price[i];
         if (!seller || pr < seller.price || (pr === seller.price && beats(p, s.players[seller.seat]))) seller = { seat: i, price: pr };
       });
-      if (good !== 'diamonds' && st.stock[good] > 0 && (!seller || st.sell[good] <= seller.price)) seller = { seat: -1, price: st.sell[good] };
+      // The Exchange undercuts a player asking more than its price; a player
+      // matching it keeps the sale.
+      if (good !== 'diamonds' && st.stock[good] > 0 && (!seller || st.sell[good] < seller.price)) seller = { seat: -1, price: st.sell[good] };
       if (!seller || buyer.seat === seller.seat || (buyer.seat < 0 && seller.seat < 0)) continue;
-      if (buyer.price < seller.price) continue;
-      const price = seller.seat < 0 ? st.sell[good] : buyer.seat < 0 ? st.buy[good] : seller.price;
+      if (buyer.price + 1e-6 < seller.price) continue;
+      const price = seller.seat < 0 ? st.sell[good] : buyer.seat < 0 ? st.buy[good] : Math.round(seller.price);
       if (buyer.seat >= 0) {
         const b = s.players[buyer.seat];
         if (b.money < price) continue;
