@@ -1725,8 +1725,8 @@ function drawAuction() {
   const WHY = {
     tendies: `TENDIES = TIME. You eat ${C.foodNeed(game.round + 1)} next round (Smooth-Brains ${C.foodNeed(game.round + 1) + 1}); go hungry and your turn shrinks to a blink.`,
     fuel: 'FUEL = PRODUCTION. Every bot that isn\'t a fuel rig burns 1 a round or sits there doing nothing.',
-    chips: 'CHIPS = ROBOTS. The Exchange builds new bots only from the chips you sell it (2 each). No chips, no bots, for anyone.',
-    diamonds: 'DIAMONDS = MONEY. Pure profit; nobody needs them and the Exchange pays whatever the offworld market says.',
+    chips: `CHIPS = ROBOTS. The Exchange builds bots from chips you sell it (2 each); the colony burns ${C.colonyChipNeed(game)} a round to run. Short, and prices climb.`,
+    diamonds: 'DIAMONDS = MONEY. Nobody needs them; the offworld price climbs most rounds, so holding is a play — but a big dump drags it down.',
   };
   ctx.fillStyle = 'rgba(255,216,77,0.12)';
   rr(160, 194, 1600, 40, 20);
@@ -2209,7 +2209,11 @@ function drawSummary() {
     text(`${g.tendies} T · ${g.fuel} F · ${g.chips} C · ${g.diamonds} D`, 1690, y, 20, '#9aa7bd', 'right', 500);
     y += 88;
   });
-  text(`The Exchange built ${sm.botsBuilt} bot${sm.botsBuilt === 1 ? '' : 's'} from chips · Bot Lot now has ${game.store.bots}`, W / 2, 700, 24, '#c8d2e3', 'center', 500);
+  const colony = sm.chipShort
+    ? `the colony needed ${sm.colonyUsed + sm.chipShort} chips and got ${sm.colonyUsed} — chip prices up, no bots built`
+    : `the colony used ${sm.colonyUsed} chip${sm.colonyUsed === 1 ? '' : 's'}`;
+  text(`The Exchange built ${sm.botsBuilt} bot${sm.botsBuilt === 1 ? '' : 's'} from chips · ${colony} · Bot Lot now has ${game.store.bots}`, W / 2, 700, 24, sm.chipShort ? '#ffd84d' : '#c8d2e3', 'center', 500);
+  text(`Diamonds now fetch ${money(game.store.buy.diamonds)} offworld`, W / 2, 805, 22, '#c9a4ff', 'center', 500);
   const ss = sm.storeSpoiled || {};
   const rotted = [];
   if (ss.tendies) rotted.push(`${ss.tendies} tendies went stale`);

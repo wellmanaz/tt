@@ -25,7 +25,12 @@ export const START_MONEY = 1000;
 export const PLOT_VALUE = 500;
 export const BOT_BASE = 100;
 export const OWN_BOT_FEE = 50; // assembly fee when building a bot from your own chips (option)
-export const PRICE_CAP = 265;
+export const PRICE_CAP = 265; // tendies, fuel and chips; diamonds have no cap
+export const CHIP_START = 85; // the Exchange's opening chip price; bots inflate with chips from here
+export const DIAMOND_START = 120;
+export const DIAMOND_DRIFT = 1.08; // the offworld price climbs about this much a round
+export const DIAMOND_DUMP = 3; // ...less this much for every diamond sold the round before
+export const PLOTS_PER_CHIP = 8; // the colony itself uses a chip a round for every 8 plots worked
 export const AUCTION_TIME = 16;
 export const IDLE_CUTOFF = 3; // seconds of nobody moving before an auction wraps up
 export const PRICE_SPEED = 55; // dollars per second a bid or ask moves
@@ -117,9 +122,17 @@ export function coinReward(round) {
   return round <= 3 ? 100 : round <= 7 ? 200 : round <= 11 ? 300 : 400;
 }
 
+// A bot is two chips' worth of parts, so the base price inflates with the
+// chip price; a near-empty lot adds a scarcity premium on top.
 export function botPrice(s) {
   if (s.store.bots <= 0) return null;
-  return BOT_BASE + Math.max(0, 8 - s.store.bots) * 20;
+  return Math.round(BOT_BASE * Math.max(1, s.store.sell.chips / CHIP_START)) + Math.max(0, 8 - s.store.bots) * 20;
+}
+
+// Chips the colony burns a round just to keep running: one for every 8
+// worked plots. Taken from the Exchange's stock before it builds any bots.
+export function colonyChipNeed(s) {
+  return Math.floor(s.tiles.filter((t) => t.bot >= 0).length / PLOTS_PER_CHIP);
 }
 
 export function tileIndex(c, r) {
@@ -160,7 +173,7 @@ export function bestOutfit(s, tile, seat) {
   let best = 0;
   let bestV = -1;
   OUTFITS.forEach((o, i) => {
-    const v = expectedYield(s, tile, i, seat) * s.store.sell[o.id];
+    const v = expectedYield(s, tile, i, seat) * (s.store.sell[o.id] || s.store.buy[o.id]);
     if (v > bestV) {
       bestV = v;
       best = i;
@@ -328,8 +341,11 @@ export function newGame(seatDefs, rng = Math.random, opts = {}) {
     store: {
       stock: { tendies: 16, fuel: 16, chips: 0, diamonds: 0 },
       bots: 14,
-      sell: { tendies: 50, fuel: 45, chips: 85, diamonds: 0 },
-      buy: { tendies: 15, fuel: 10, chips: 50, diamonds: 100 },
+      sell: { tendies: 50, fuel: 45, chips: CHIP_START, diamonds: 0 },
+      buy: { tendies: 15, fuel: 10, chips: 50, diamonds: DIAMOND_START },
+      diamondsSold: 0, // diamonds that changed hands this round: drags the offworld price
+      diamondsBeforeGlut: 0, // the price a glut knocked down, restored next round
+      chipShort: 0, // chips the colony went without last round
     },
     round: 1,
     phase: 'claim',
@@ -849,6 +865,7 @@ const GLOBAL_EVENTS = [
   { id: 'meteor', p: 0.1, max: 2, text: 'METEOR STRIKE — a bot is flattened; the crater glitters with diamonds' },
   { id: 'panic', p: 0.1, max: 2, text: 'PAPER HANDS PANIC — a bot runs off' },
   { id: 'rug', p: 0.1, max: 2, text: 'RUG PULL — every chip in the colony vanishes' },
+  { id: 'glut', p: 0.1, max: 1, text: 'DIAMOND GLUT — offworld buyers are flooded; diamonds fetch half this round' },
 ];
 
 function pickGlobalEvent(s) {
@@ -918,6 +935,9 @@ function startProduction(s) {
     } else if (event.id === 'rug') {
       s.store.stock.chips = 0;
       s.players.forEach((p) => (p.goods.chips = 0));
+    } else if (event.id === 'glut') {
+      s.store.diamondsBeforeGlut = s.store.buy.diamonds;
+      s.store.buy.diamonds = Math.max(MIN_PRICE.diamonds, Math.round(s.store.buy.diamonds / 2));
     } else if (event.id === 'meteor') {
       const staffed = s.tiles.filter((t) => t.bot >= 0);
       const t = staffed.length ? staffed[Math.floor(s.rng() * staffed.length)] : s.tiles.filter((x) => !x.exchange)[0];
@@ -1247,14 +1267,16 @@ function settlePrices(s, a) {
   const good = a.good;
   const st = s.store;
   if (good === 'diamonds') {
+    // Everything sold goes offworld; the price itself moves at the end of
+    // the round (see startSummary) whether or not there was an auction.
     st.stock.diamonds = 0;
-    st.buy.diamonds = 50 + Math.floor(s.rng() * 101);
+    st.diamondsSold = a.sold.reduce((n, x) => n + x, 0);
     return;
   }
   let demand;
   if (good === 'tendies') demand = s.players.length * foodNeed(s.round + 1);
   else if (good === 'fuel') demand = s.players.reduce((n, p) => n + nonFuelBots(s, p.index), 0) + 2;
-  else demand = Math.max(6, (16 - st.bots) * 2);
+  else demand = Math.max(6, (16 - st.bots) * 2) + colonyChipNeed(s);
   const level = st.stock[good] / Math.max(1, demand);
   let sell = st.sell[good];
   if (level < 0.5) sell *= 1.35;
@@ -1277,10 +1299,29 @@ function startSummary(s) {
       s.store.stock[g] -= storeSpoiled[g];
     }
   });
-  // The Exchange builds bots from chips (2 each), plus one shipment a round.
-  const builds = Math.min(2, Math.floor(s.store.stock.chips / 2));
-  s.store.stock.chips -= builds * 2;
-  s.store.bots = Math.min(24, s.store.bots + builds + (s.store.bots < 4 ? 1 : 0));
+  // The colony's own needs come first: a chip a round per 8 worked plots,
+  // out of the Exchange's stock. Going short drives the chip price up and
+  // stops the Exchange building anything that round.
+  const st = s.store;
+  const colonyNeed = colonyChipNeed(s);
+  const colonyUsed = Math.min(colonyNeed, st.stock.chips);
+  st.stock.chips -= colonyUsed;
+  st.chipShort = colonyNeed - colonyUsed;
+  if (st.chipShort) {
+    st.sell.chips = Math.round(Math.min(PRICE_CAP, st.sell.chips * (1 + 0.15 * st.chipShort)));
+    st.buy.chips = Math.round(Math.max(MIN_PRICE.chips, Math.min(PRICE_CAP - 10, st.sell.chips * 0.45)));
+  }
+  // Then the Exchange builds bots from what is left (2 chips each), plus one shipment a round.
+  const builds = st.chipShort ? 0 : Math.min(2, Math.floor(st.stock.chips / 2));
+  st.stock.chips -= builds * 2;
+  st.bots = Math.min(24, st.bots + builds + (st.bots < 4 ? 1 : 0));
+  // The offworld diamond market: climbs most rounds, wobbles, and dips when
+  // the colony dumps a lot at once. A glut's halving lasts one round.
+  const diaBase = st.diamondsBeforeGlut || st.buy.diamonds;
+  st.diamondsBeforeGlut = 0;
+  const wobble = 1 + (s.rng() - 0.5) * 0.3;
+  st.buy.diamonds = Math.max(MIN_PRICE.diamonds, Math.round(diaBase * DIAMOND_DRIFT * wobble - st.diamondsSold * DIAMOND_DUMP));
+  st.diamondsSold = 0;
 
   const ranks = ranking(s);
   s.summary = {
@@ -1288,6 +1329,8 @@ function startSummary(s) {
     rows: ranks.map((p) => ({ seat: p.index, worth: netWorth(s, p) })),
     colony: s.players.reduce((n, p) => n + netWorth(s, p), 0),
     botsBuilt: builds,
+    colonyUsed,
+    chipShort: st.chipShort,
     storeSpoiled,
   };
 }
