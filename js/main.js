@@ -1725,7 +1725,7 @@ function drawAuction() {
   const WHY = {
     tendies: `TENDIES = TIME. You eat ${C.foodNeed(game.round + 1)} next round (Smooth-Brains ${C.foodNeed(game.round + 1) + 1}); go hungry and your turn shrinks to a blink.`,
     fuel: 'FUEL = PRODUCTION. Every bot that isn\'t a fuel rig burns 1 a round or sits there doing nothing.',
-    chips: `CHIPS = ROBOTS. The Exchange builds bots from chips you sell it (2 each); the colony burns ${C.colonyChipNeed(game)} a round to run. Short, and prices climb.`,
+    chips: `CHIPS = ROBOTS. The Exchange builds bots from chips you sell it (2 each); the colony burns ${C.colonyChipNeed(game)} a round to run. It wants ${C.exchangeTarget(game, 'chips')} in stock and has ${game.store.stock.chips}: the emptier its warehouse, the dearer chips get.`,
     diamonds: 'DIAMONDS = MONEY. Nobody needs them; the offworld price climbs most rounds, so holding is a play — but a big dump drags it down.',
   };
   ctx.fillStyle = 'rgba(255,216,77,0.12)';
@@ -1735,11 +1735,16 @@ function drawAuction() {
   const sells = a.good !== 'diamonds' && st.stock[a.good] > 0;
   const stockText = a.good === 'diamonds' ? 'has buyers offworld' : `has ${st.stock[a.good]} in stock`;
   const sellText = sells ? `sells at ${money(st.sell[a.good])}` : 'has NOTHING to sell — no ceiling';
-  text(`The Exchange ${stockText} · ${sellText} · buys at ${money(st.buy[a.good])}`, W / 2, 166, 26, sells ? '#c8d2e3' : '#ffd84d', 'center', 500);
+  const buying = a.exLeft > 0;
+  const buyText = buying ? `buys ${a.exLeft} more at ${money(st.buy[a.good])}` : 'is FULL — buying no more';
+  text(`The Exchange ${stockText} · ${sellText} · ${buyText}`, W / 2, 166, 26, sells && buying ? '#c8d2e3' : '#ffd84d', 'center', 500);
 
   const top = 380;
   const bottom = 850;
-  const yOf = (price) => bottom - (price / a.axisMax) * (bottom - top);
+  // The floor runs from the Exchange's buy price at the bottom to its sell
+  // price at the top, so the two sides meet in between.
+  const ax = a.axis || C.auctionAxis(game, a);
+  const yOf = (price) => bottom - ((price - ax.min) / (ax.max - ax.min)) * (bottom - top);
   const colX = (i) => 480 + i * 320;
 
   if (a.stage === 'chart') {
@@ -1766,7 +1771,8 @@ function drawAuction() {
   ctx.fill();
   ctx.strokeStyle = '#2a3447';
   ctx.lineWidth = 2;
-  for (let p = 0; p <= a.axisMax; p += a.axisMax / 6) {
+  for (let k = 0; k <= 6; k++) {
+    const p = ax.min + ((ax.max - ax.min) * k) / 6;
     const y = yOf(p);
     ctx.beginPath();
     ctx.moveTo(300, y);
@@ -1797,7 +1803,9 @@ function drawAuction() {
     text(label, 1630, y, 20, hot > 0 ? '#fff' : color, 'left', 600);
   };
   if (sells) dashed(st.sell[a.good], 'rgba(61,220,132,0.6)', `Exchange sells ${money(st.sell[a.good])}`, flashAmt(flash.store.sell, nowMs));
-  dashed(st.buy[a.good], 'rgba(255,138,216,0.6)', `Exchange buys ${money(st.buy[a.good])}`, flashAmt(flash.store.buy, nowMs));
+  else text('The Exchange has nothing to sell — no ceiling', 1630, yOf(ax.max), 20, '#ffd84d', 'left', 600);
+  if (buying) dashed(st.buy[a.good], 'rgba(255,138,216,0.6)', `Exchange buys ${money(st.buy[a.good])} · ${a.exLeft} left`, flashAmt(flash.store.buy, nowMs));
+  else text('The Exchange is full — it buys no more', 1630, yOf(ax.min), 20, '#ffd84d', 'left', 600);
 
   const L = a.lines || {};
   const solid = (price, color, label, above) => {
@@ -1835,7 +1843,7 @@ function drawAuction() {
     drawTrader(p, i, x, y, buyer, a.active[i] ? vel[i] : 0, a.active[i], !!a.bounced[i], nowMs, hot);
     // Sellers parked at the very top get their tag below the line instead.
     // Sellers parked near the top get their tag below the line instead.
-    const tagY = buyer || a.price[i] > a.axisMax * 0.88 ? y + 22 : y - 128;
+    const tagY = buyer || a.price[i] > ax.min + (ax.max - ax.min) * 0.88 ? y + 22 : y - 128;
     text(money(a.price[i]), x, tagY, 22, '#fff', 'center', 800);
     const status = a.bounced[i] === 'backed off' ? 'backed off · B rejoins' : a.bounced[i] || (a.active[i] ? '' : 'stepped off');
     text(status ? `${p.name} · ${status}` : p.name, x, tagY + 24, 16, '#c8d2e3', 'center', 500);
@@ -1849,7 +1857,7 @@ function drawAuction() {
   else if (a.trades) label = `${a.trades} traded, average ${money(a.sum / a.trades)}`;
   else label = 'No trades';
   text(label, W / 2, 910, 30, '#fff', 'center', 800);
-  if (a.stage === 'trade') text('Buyers push UP, sellers push DOWN · when a buyer meets a seller, one unit trades per tick · sold out sends you to the top, broke to the bottom · if nobody moves for 3s the floor closes · B steps off, B again steps back in', W / 2, 943, 20, '#9aa7bd', 'center', 500);
+  if (a.stage === 'trade') text('Buyers push UP, sellers push DOWN · when a buyer meets a seller, one unit trades per tick · the Exchange sells at the top and buys at the bottom, so you can meet another player first · sold out sends you to the top, broke to the bottom · if nobody moves for 3s the floor closes · B steps off, B again steps back in', W / 2, 943, 20, '#9aa7bd', 'center', 500);
 }
 
 // ---------- report, summary, result ----------
@@ -2210,7 +2218,7 @@ function drawSummary() {
     y += 88;
   });
   const colony = sm.chipShort
-    ? `the colony needed ${sm.colonyUsed + sm.chipShort} chips and got ${sm.colonyUsed} — chip prices up, no bots built`
+    ? `the colony needed ${sm.colonyUsed + sm.chipShort} chips and got ${sm.colonyUsed} — an empty warehouse, so chips are dear and no bots were built`
     : `the colony used ${sm.colonyUsed} chip${sm.colonyUsed === 1 ? '' : 's'}`;
   text(`The Exchange built ${sm.botsBuilt} bot${sm.botsBuilt === 1 ? '' : 's'} from chips · ${colony} · Bot Lot now has ${game.store.bots}`, W / 2, 700, 24, sm.chipShort ? '#ffd84d' : '#c8d2e3', 'center', 500);
   text(`Diamonds now fetch ${money(game.store.buy.diamonds)} offworld`, W / 2, 805, 22, '#c9a4ff', 'center', 500);
@@ -2305,11 +2313,13 @@ function drawGame(now) {
     const p = game.players[tu.seat];
     let hint;
     if (p.kind === 'ai') hint = 'working';
+    else if (tu.scene === 'town' && tu.hasBot && tu.used) hint = `Bot Lot buys this bot for ${money(C.lotPays(game, tu))} · a shop changes its tool · or take it back out through an exit · B ends turn`;
     else if (tu.scene === 'town') hint = tu.hasBot ? 'Walk into a shop to fit a tool, then leave town through an exit · B ends turn' : 'Walk into a building · B ends turn';
     else if (tu.hasBot) hint = tu.outfit >= 0 ? "A on your plot's pad installs the bot — miss and it bolts · B ends turn" : 'This bot needs a tool: go back to town';
     else if (tu.assay === 'need-sample') hint = 'Stand on a plot and press A to take a sample';
     else if (tu.assay === 'have-sample') hint = 'Take the sample back to the Assay Office';
     else if (tu.listing) hint = 'A on a plot you own lists it for sale (A again withdraws) · B ends turn';
+    else if (standingOnOwnBot(tu)) hint = 'X picks this bot up, to sell it at the Bot Lot or change its tool · B ends turn';
     else hint = 'Walk into The Exchange for a bot · walk over a Bitcoin to grab it · B ends turn';
     drawTopBar(tu.ready > 0 ? `${p.name} is up next` : `${p.name}: ${hint}`);
     drawTimer(tu);
@@ -2336,6 +2346,13 @@ function drawGame(now) {
     ctx.fillRect(0, 440, W, 170);
     text(game.banner.text, W / 2, 525, 64, '#ffffff', 'center', 800);
   }
+}
+
+// On the map, empty-handed, on one of your own plots that has a bot.
+function standingOnOwnBot(tu) {
+  if (tu.scene !== 'map' || tu.hasBot) return false;
+  const t = C.tileAt(game, tu.x, tu.y);
+  return !!t && t.owner === tu.seat && t.bot >= 0;
 }
 
 // "Ready, X" then 3, 2, 1 before a turn starts.
