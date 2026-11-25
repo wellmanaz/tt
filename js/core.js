@@ -33,9 +33,13 @@ export const DIAMOND_DUMP = 3; // ...less this much for every diamond sold the r
 export const PLOTS_PER_CHIP = 8; // the colony itself uses a chip a round for every 8 plots worked
 export const AUCTION_TIME = 16;
 export const IDLE_CUTOFF = 3; // seconds of nobody moving before an auction wraps up
-export const PRICE_SPEED = 55; // dollars per second a bid or ask moves
+export const FLOOR_CROSS = 3; // seconds a bid or ask takes to cross the whole trading floor
 export const LAND_BID_SPEED = 160; // dollars per second a land bid moves
 export const LAND_TIME = 12;
+// The Exchange buys only what it has room for in an auction. Tendies and
+// fuel: until its warehouse holds this many (more would only rot).
+export const EXCHANGE_HOLD = 30;
+export const DIAMOND_ORDER = 10; // diamonds offworld buyers take in a round
 
 export const GOODS = ['tendies', 'fuel', 'chips', 'diamonds'];
 export const OUTFITS = [
@@ -127,6 +131,14 @@ export function coinReward(round) {
 export function botPrice(s) {
   if (s.store.bots <= 0) return null;
   return Math.round(BOT_BASE * Math.max(1, s.store.sell.chips / CHIP_START)) + Math.max(0, 8 - s.store.bots) * 20;
+}
+
+// What the Bot Lot pays for a used bot: half of a new one at today's chip
+// price, plus half of the tool on it.
+export function botResale(s, outfit) {
+  const base = BOT_BASE * Math.max(1, s.store.sell.chips / CHIP_START);
+  const tool = outfit >= 0 ? OUTFITS[outfit].cost : 0;
+  return Math.round((base + tool) / 2 / 5) * 5;
 }
 
 // Chips the colony burns a round just to keep running: one for every 8
@@ -574,6 +586,7 @@ function startTurn(s, seat) {
     hasBot: false,
     outfit: -1,
     botPaid: 0,
+    used: false, // the bot in tow was picked up off a plot, not bought
     botCount: 0,
     inBuilding: null,
     assay: 'none',
@@ -604,10 +617,11 @@ function endTurn(s) {
   const tu = s.turn;
   if (tu.hasBot && tu.scene === 'map') bolt(s, tu, 'out of time');
   else if (tu.hasBot) {
-    // Still in town: the Bot Lot takes it back.
-    s.players[tu.seat].money += tu.botPaid;
+    // Still in town: the Bot Lot takes it back (and pays for a used one).
+    s.players[tu.seat].money += lotPays(s, tu);
     s.store.bots++;
     tu.hasBot = false;
+    tu.used = false;
   }
   s.coin = null;
   s.turnIdx++;
@@ -615,15 +629,23 @@ function endTurn(s) {
   else startProduction(s);
 }
 
+// What the Bot Lot gives you for the bot in tow: your money back for one you
+// just bought, the used price for one you picked up off a plot.
+export function lotPays(s, tu) {
+  return tu.used ? botResale(s, tu.outfit) : tu.botPaid;
+}
+
 function enterBuilding(s, tu, b) {
   const p = s.players[tu.seat];
   if (b.id === 'lot') {
     if (tu.hasBot) {
-      p.money += tu.botPaid;
+      const pay = lotPays(s, tu);
+      p.money += pay;
       s.store.bots++;
+      toast(s, tu.used ? `Sold the ${OUTFITS[tu.outfit].tool} bot to the Bot Lot for $${pay}` : `Bot returned for $${pay}`);
       tu.hasBot = false;
+      tu.used = false;
       tu.outfit = -1;
-      toast(s, `Bot returned for $${tu.botPaid}`);
     } else {
       const price = botPrice(s) === null ? null : shopPrice(p, botPrice(s));
       if (price === null && s.ownBots && p.goods.chips >= 2 && p.money >= OWN_BOT_FEE) {
@@ -664,8 +686,8 @@ function enterBuilding(s, tu, b) {
     else if (p.money < cost) toast(s, `A ${o.tool} costs $${cost}. Not enough bucks.`);
     else {
       p.money -= cost;
+      toast(s, tu.outfit >= 0 ? `Swapped the ${OUTFITS[tu.outfit].tool} for a ${o.tool} for $${cost}` : `Fitted a ${o.tool} for $${cost}`);
       tu.outfit = b.outfit;
-      toast(s, `Fitted a ${o.tool} for $${cost}`);
     }
   } else if (b.id === 'assay') {
     if (tu.hasBot) toast(s, 'Assay Office: come back without a bot in tow');
@@ -827,6 +849,7 @@ function updateWalk(s, inputs, dt) {
           if (botTile.bot >= 0) toast(s, `Replaced the ${OUTFITS[botTile.bot].tool} bot`);
           botTile.bot = tu.outfit;
           tu.hasBot = false;
+          tu.used = false;
           tu.outfit = -1;
           s.flash = { tile: tileIndex(botTile.c, botTile.r), t: 0.5 };
         }
@@ -837,6 +860,26 @@ function updateWalk(s, inputs, dt) {
       } else if (tu.listing && here.owner === tu.seat) {
         here.forSale = !here.forSale;
         toast(s, here.forSale ? 'Plot listed FOR SALE — it goes up for auction next round' : 'Listing withdrawn');
+      }
+    } else if (inp.alt && here) {
+      // X picks a bot back up off one of your plots. Walk it into town to
+      // sell it at the Bot Lot or change its tool at a shop, or put it down
+      // again on any of your pads. (X, not A, so mashing A after installing
+      // never lifts it straight back off.)
+      if (tu.hasBot) toast(s, 'You already have a bot in tow');
+      else if (here.owner !== tu.seat) toast(s, 'X picks up a bot from one of your own plots');
+      else if (here.bot < 0) toast(s, 'No bot on this plot to pick up');
+      else {
+        const pad = tileCenter(here);
+        tu.hasBot = true;
+        tu.used = true;
+        tu.outfit = here.bot;
+        tu.botPaid = 0;
+        tu.bx = pad.x;
+        tu.by = pad.y;
+        here.bot = -1;
+        s.flash = { tile: tileIndex(here.c, here.r), t: 0.5 };
+        toast(s, `Picked up the ${OUTFITS[tu.outfit].tool} bot: the Bot Lot pays $${botResale(s, tu.outfit)}, a shop changes its tool`, 3.5);
       }
     }
   }
@@ -888,7 +931,9 @@ const PLAYER_EVENTS = [
   { id: 'margin', good: false, text: 'MARGIN CALL — the broker takes a cut', money: -1.2 },
   { id: 'audit', good: false, text: 'Tax audit. Ouch.', money: -0.8 },
   { id: 'wallet', good: false, text: 'You lost your seed phrase', money: -1 },
-  { id: 'repo', good: false, text: 'An empty plot is repossessed', plot: -1 },
+  // No event takes land away: one used to fire as your turn started, usually
+  // took the plot you had just claimed, and said so only behind the Ready
+  // countdown, so a plot simply vanished.
 ];
 
 function maybePlayerEvent(s, p) {
@@ -913,12 +958,6 @@ function maybePlayerEvent(s, p) {
     const t = free[Math.floor(s.rng() * free.length)];
     t.owner = p.index;
     s.flash = { tile: tileIndex(t.c, t.r), t: 1 };
-  }
-  if (e.plot === -1) {
-    const empty = s.tiles.filter((t) => t.owner === p.index && t.bot < 0);
-    if (!empty.length) return;
-    const t = empty[Math.floor(s.rng() * empty.length)];
-    t.owner = -1;
   }
   toast(s, `${p.name}: ${text}`, 3.5);
 }
@@ -1063,8 +1102,12 @@ function startAuction(s, gi) {
     return;
   }
   const allAI = quick(s);
-  const dry = good === 'diamonds' || s.store.stock[good] <= 0;
-  const axisMax = Math.min(400, dry ? Math.max(300, Math.ceil((s.store.sell[good] * 3) / 50) * 50) : Math.max(150, Math.ceil((s.store.sell[good] * 2) / 50) * 50));
+  const st = s.store;
+  const room = exchangeRoom(s, good);
+  // The top of the floor once the Exchange has nothing to sell (see
+  // auctionAxis): always above its selling price, so running it dry opens the
+  // ceiling up rather than pulling it down.
+  const openTop = Math.max(Math.min(400, Math.max(300, Math.ceil((st.sell[good] * 3) / 50) * 50)), Math.ceil((st.sell[good] * 1.5) / 50) * 50);
   s.auction = {
     gi,
     good,
@@ -1080,8 +1123,11 @@ function startAuction(s, gi) {
     bounced: s.players.map(() => null),
     locked: s.players.map(() => false),
     idle: 0,
-    axisMax,
+    openTop,
+    axis: null, // the floor's price range while trading (auctionAxis)
     lines: { buy: null, sell: null },
+    exRoom: room, // units the Exchange set out to buy this auction
+    exLeft: room, // ...and how many more it will take
     trades: 0,
     sum: 0,
     tick: 0,
@@ -1117,9 +1163,12 @@ function updateAuction(s, inputs, dt) {
     if (a.t <= 0) {
       a.stage = 'trade';
       a.t = AUCTION_TIME;
+      // Sellers start on the Exchange's sell line at the top, buyers on its
+      // buy line at the bottom, and walk towards each other.
+      a.axis = auctionAxis(s, a);
       s.players.forEach((p, i) => {
         a.active[i] = true;
-        a.price[i] = a.roles[i] === 'buy' ? 0 : a.axisMax;
+        a.price[i] = a.roles[i] === 'buy' ? a.axis.min : a.axis.max;
       });
     }
     return;
@@ -1130,6 +1179,8 @@ function updateAuction(s, inputs, dt) {
     // the Exchange's posted price: you stop there and trade.
     const lines = auctionLines(s, a);
     const storeSells = good !== 'diamonds' && st.stock[good] > 0;
+    const ax = auctionAxis(s, a);
+    const speed = (ax.max - ax.min) / FLOOR_CROSS;
     s.players.forEach((p, i) => {
       const inp = inputs[i];
       if (!a.active[i]) {
@@ -1145,19 +1196,19 @@ function updateAuction(s, inputs, dt) {
         // Done: back right off the floor so nobody can trade against you.
         a.active[i] = false;
         a.bounced[i] = 'backed off';
-        a.price[i] = a.roles[i] === 'buy' ? 0 : a.axisMax;
+        a.price[i] = a.roles[i] === 'buy' ? ax.min : ax.max;
         return;
       }
-      let np = a.price[i] - inp.y * PRICE_SPEED * dt;
+      let np = a.price[i] - inp.y * speed * dt;
       if (a.roles[i] === 'buy') {
         if (lines.sell !== null) np = Math.min(np, lines.sell);
         if (storeSells) np = Math.min(np, st.sell[good]);
         np = Math.min(np, p.money);
       } else {
         if (lines.buy !== null) np = Math.max(np, lines.buy);
-        np = Math.max(np, st.buy[good]);
+        if (a.exLeft > 0) np = Math.max(np, st.buy[good]);
       }
-      a.price[i] = Math.max(0, Math.min(a.axisMax, np));
+      a.price[i] = Math.max(ax.min, Math.min(ax.max, np));
     });
     a.lines = auctionLines(s, a);
 
@@ -1180,7 +1231,8 @@ function updateAuction(s, inputs, dt) {
         const pr = a.price[i];
         if (!buyer || pr > buyer.price || (pr === buyer.price && beats(p, s.players[buyer.seat]))) buyer = { seat: i, price: pr };
       });
-      if (!buyer || buyer.price < st.buy[good]) buyer = { seat: -1, price: st.buy[good] };
+      // The Exchange buys at its posted price, and only while it has room.
+      if (a.exLeft > 0 && (!buyer || buyer.price < st.buy[good])) buyer = { seat: -1, price: st.buy[good] };
       let seller = null;
       s.players.forEach((p, i) => {
         if (!a.active[i] || a.roles[i] !== 'sell') return;
@@ -1190,7 +1242,7 @@ function updateAuction(s, inputs, dt) {
       // The Exchange undercuts a player asking more than its price; a player
       // matching it keeps the sale.
       if (good !== 'diamonds' && st.stock[good] > 0 && (!seller || st.sell[good] < seller.price)) seller = { seat: -1, price: st.sell[good] };
-      if (!seller || buyer.seat === seller.seat || (buyer.seat < 0 && seller.seat < 0)) continue;
+      if (!buyer || !seller || buyer.seat === seller.seat || (buyer.seat < 0 && seller.seat < 0)) continue;
       if (buyer.price + 1e-6 < seller.price) continue;
       const price = seller.seat < 0 ? st.sell[good] : buyer.seat < 0 ? st.buy[good] : Math.round(seller.price);
       if (buyer.seat >= 0) {
@@ -1200,7 +1252,10 @@ function updateAuction(s, inputs, dt) {
         b.dbg.paidFor += price;
         b.goods[good]++;
         a.bought[buyer.seat]++;
-      } else st.stock[good]++;
+      } else {
+        st.stock[good]++;
+        a.exLeft--;
+      }
       if (seller.seat >= 0) {
         const sp = s.players[seller.seat];
         sp.money += price;
@@ -1216,23 +1271,24 @@ function updateAuction(s, inputs, dt) {
     const moving = s.players.some((p, i) => a.active[i] && Math.abs(inputs[i].y) > 0.1);
     a.idle = moving || traded ? 0 : a.idle + dt;
     // Sold out? Back to the top. Broke? Back to the bottom.
+    a.axis = auctionAxis(s, a);
     s.players.forEach((p, i) => {
       if (!a.active[i]) return;
       if (a.roles[i] === 'sell' && p.goods[good] <= criticalLevel(s, i, good)) {
         a.active[i] = false;
         a.bounced[i] = 'sold out';
-        a.price[i] = a.axisMax;
+        a.price[i] = a.axis.max;
       }
       if (a.roles[i] === 'buy' && p.money < Math.max(1, st.buy[good])) {
         a.active[i] = false;
         a.bounced[i] = 'out of cash';
-        a.price[i] = 0;
+        a.price[i] = a.axis.min;
       }
     });
 
     const buyers = a.active.some((x, i) => x && a.roles[i] === 'buy');
     const sellers = a.active.some((x, i) => x && a.roles[i] === 'sell');
-    const possible = (buyers && (sellers || storeSells)) || sellers;
+    const possible = (buyers && (sellers || storeSells)) || (sellers && a.exLeft > 0);
     a.quiet = possible ? 0 : a.quiet + dt;
     a.t -= dt;
     if (a.t <= 0 || a.quiet > 1 || a.idle > IDLE_CUTOFF) {
@@ -1247,6 +1303,35 @@ function updateAuction(s, inputs, dt) {
     if (a.gi + 1 < GOODS.length) startAuction(s, a.gi + 1);
     else startSummary(s);
   }
+}
+
+// How many of a good the colony will want from the Exchange next round. Sets
+// its prices after an auction, and how many chips it wants to hold.
+export function exchangeDemand(s, good) {
+  if (good === 'tendies') return s.players.length * foodNeed(s.round + 1);
+  if (good === 'fuel') return s.players.reduce((n, p) => n + nonFuelBots(s, p.index), 0) + 2;
+  return Math.max(6, (16 - s.store.bots) * 2) + colonyChipNeed(s);
+}
+
+// How many units the Exchange will buy in one auction: room in its warehouse
+// for tendies and fuel, the chips it can use, one offworld order of
+// diamonds. Fixed when the auction opens; it does not grow as it sells.
+export function exchangeRoom(s, good) {
+  const st = s.store;
+  if (good === 'diamonds') return DIAMOND_ORDER;
+  if (good === 'chips') return Math.max(0, exchangeDemand(s, 'chips') - st.stock.chips);
+  return Math.max(0, EXCHANGE_HOLD - st.stock[good]);
+}
+
+// The trading floor's price range. The Exchange's sell price is the top and
+// its buy price the bottom, so players meet each other in between before
+// either side gets to the Exchange. Sold out, the Exchange's sell line goes
+// and the top opens up; full, its buy line goes and the bottom drops to $0.
+export function auctionAxis(s, a) {
+  const st = s.store;
+  const sells = a.good !== 'diamonds' && st.stock[a.good] > 0;
+  const min = a.exLeft > 0 ? st.buy[a.good] : 0;
+  return { min, max: Math.max(min + 10, sells ? st.sell[a.good] : a.openTop) };
 }
 
 // Current buy line (highest player bid) and sell line (lowest player ask).
@@ -1273,10 +1358,7 @@ function settlePrices(s, a) {
     st.diamondsSold = a.sold.reduce((n, x) => n + x, 0);
     return;
   }
-  let demand;
-  if (good === 'tendies') demand = s.players.length * foodNeed(s.round + 1);
-  else if (good === 'fuel') demand = s.players.reduce((n, p) => n + nonFuelBots(s, p.index), 0) + 2;
-  else demand = Math.max(6, (16 - st.bots) * 2) + colonyChipNeed(s);
+  const demand = exchangeDemand(s, good);
   const level = st.stock[good] / Math.max(1, demand);
   let sell = st.sell[good];
   if (level < 0.5) sell *= 1.35;
