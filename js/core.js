@@ -36,10 +36,19 @@ export const IDLE_CUTOFF = 3; // seconds of nobody moving before an auction wrap
 export const FLOOR_CROSS = 3; // seconds a bid or ask takes to cross the whole trading floor
 export const LAND_BID_SPEED = 160; // dollars per second a land bid moves
 export const LAND_TIME = 12;
-// The Exchange buys only what it has room for in an auction. Tendies and
-// fuel: until its warehouse holds this many (more would only rot).
-export const EXCHANGE_HOLD = 30;
+// The Exchange buys only what it reckons the colony needs for the next few
+// rounds; anything perishable it holds beyond that rots at the end of a round.
+export const EXCHANGE_ROUNDS = 2;
+export const EXCHANGE_HOLD = 30; // perishables it holds beyond this rot anyway
 export const DIAMOND_ORDER = 10; // diamonds offworld buyers take in a round
+// Scarcity pricing. Cover is how much of what the Exchange wants to be
+// holding it actually has: empty, its price is this much over the fair price;
+// at its target, the fair price; and it eases off from there.
+export const SCARCE_RISE = 0.5;
+export const GLUT_FALL = 0.2; // ...down to this much off at twice the target
+// And the fair price itself follows, by this much a round, so a shortage that
+// lasts gets dearer and a surplus that lasts gets cheaper.
+export const FAIR_DRIFT = 0.08;
 
 export const GOODS = ['tendies', 'fuel', 'chips', 'diamonds'];
 export const OUTFITS = [
@@ -355,6 +364,9 @@ export function newGame(seatDefs, rng = Math.random, opts = {}) {
       bots: 14,
       sell: { tendies: 50, fuel: 45, chips: CHIP_START, diamonds: 0 },
       buy: { tendies: 15, fuel: 10, chips: 50, diamonds: DIAMOND_START },
+      // What the Exchange reckons a unit is worth with exactly one round's
+      // demand in the warehouse. Scarcity moves the posted price around it.
+      fair: { tendies: 50, fuel: 45, chips: CHIP_START, diamonds: DIAMOND_START },
       diamondsSold: 0, // diamonds that changed hands this round: drags the offworld price
       diamondsBeforeGlut: 0, // the price a glut knocked down, restored next round
       chipShort: 0, // chips the colony went without last round
@@ -1313,14 +1325,30 @@ export function exchangeDemand(s, good) {
   return Math.max(6, (16 - s.store.bots) * 2) + colonyChipNeed(s);
 }
 
-// How many units the Exchange will buy in one auction: room in its warehouse
-// for tendies and fuel, the chips it can use, one offworld order of
-// diamonds. Fixed when the auction opens; it does not grow as it sells.
-export function exchangeRoom(s, good) {
-  const st = s.store;
+// What the Exchange wants to be holding: the colony's demand for the next
+// EXCHANGE_ROUNDS rounds, or one offworld order of diamonds.
+export function exchangeTarget(s, good) {
   if (good === 'diamonds') return DIAMOND_ORDER;
-  if (good === 'chips') return Math.max(0, exchangeDemand(s, 'chips') - st.stock.chips);
-  return Math.max(0, EXCHANGE_HOLD - st.stock[good]);
+  return exchangeDemand(s, good) * EXCHANGE_ROUNDS;
+}
+
+// How many units it will buy in one auction: the gap between that target and
+// what it already holds. Fixed when the auction opens, so it does not grow as
+// the auction sells its stock back out.
+export function exchangeRoom(s, good) {
+  if (good === 'diamonds') return DIAMOND_ORDER;
+  return Math.max(0, exchangeTarget(s, good) - s.store.stock[good]);
+}
+
+// How much of what the Exchange wants to hold it actually has: 0 is an empty
+// warehouse, 1 is the two rounds it buys for, 2 is twice that.
+export function exchangeCover(s, good) {
+  return s.store.stock[good] / Math.max(1, exchangeTarget(s, good));
+}
+
+export function scarcityMult(cover) {
+  if (cover < 1) return 1 + SCARCE_RISE * (1 - cover);
+  return 1 - GLUT_FALL * Math.min(1, cover - 1);
 }
 
 // The trading floor's price range. The Exchange's sell price is the top and
@@ -1358,14 +1386,24 @@ function settlePrices(s, a) {
     st.diamondsSold = a.sold.reduce((n, x) => n + x, 0);
     return;
   }
-  const demand = exchangeDemand(s, good);
-  const level = st.stock[good] / Math.max(1, demand);
-  let sell = st.sell[good];
-  if (level < 0.5) sell *= 1.35;
-  else if (level < 1) sell *= 1.15;
-  else if (level > 2) sell *= 0.85;
-  if (a.trades) sell = Math.max(sell, (a.sum / a.trades) * 0.8);
-  st.sell[good] = Math.round(Math.max(MIN_PRICE[good] * 2, Math.min(PRICE_CAP, sell)));
+  repriceGood(s, good, a);
+}
+
+// The posted prices of a good, from what the Exchange is holding against what
+// the colony needs. The fair price drifts with a lasting shortage or surplus,
+// and the scarcity curve moves this round's price around it, so a price that
+// has climbed can come back down again. A floor that pays more than the
+// Exchange asks pulls the fair price up with it.
+export function repriceGood(s, good, a = null) {
+  const st = s.store;
+  const cover = exchangeCover(s, good);
+  st.fair[good] *= 1 + FAIR_DRIFT * (1 - Math.min(2, cover));
+  if (a && a.trades) {
+    const avg = a.sum / a.trades;
+    if (avg > st.sell[good]) st.fair[good] = Math.max(st.fair[good], avg * 0.9);
+  }
+  st.fair[good] = Math.max(MIN_PRICE[good] * 2, Math.min(PRICE_CAP, st.fair[good]));
+  st.sell[good] = Math.round(Math.max(MIN_PRICE[good] * 2, Math.min(PRICE_CAP, st.fair[good] * scarcityMult(cover))));
   st.buy[good] = Math.round(Math.max(MIN_PRICE[good], Math.min(PRICE_CAP - 10, st.sell[good] * 0.45)));
 }
 
@@ -1376,8 +1414,8 @@ function startSummary(s) {
   // The Exchange's perishables rot too.
   const storeSpoiled = { tendies: 0, fuel: 0 };
   ['tendies', 'fuel'].forEach((g) => {
-    if (s.store.stock[g] > 30) {
-      storeSpoiled[g] = Math.floor((s.store.stock[g] - 30) / 2);
+    if (s.store.stock[g] > EXCHANGE_HOLD) {
+      storeSpoiled[g] = Math.floor((s.store.stock[g] - EXCHANGE_HOLD) / 2);
       s.store.stock[g] -= storeSpoiled[g];
     }
   });
@@ -1389,14 +1427,13 @@ function startSummary(s) {
   const colonyUsed = Math.min(colonyNeed, st.stock.chips);
   st.stock.chips -= colonyUsed;
   st.chipShort = colonyNeed - colonyUsed;
-  if (st.chipShort) {
-    st.sell.chips = Math.round(Math.min(PRICE_CAP, st.sell.chips * (1 + 0.15 * st.chipShort)));
-    st.buy.chips = Math.round(Math.max(MIN_PRICE.chips, Math.min(PRICE_CAP - 10, st.sell.chips * 0.45)));
-  }
   // Then the Exchange builds bots from what is left (2 chips each), plus one shipment a round.
   const builds = st.chipShort ? 0 : Math.min(2, Math.floor(st.stock.chips / 2));
   st.stock.chips -= builds * 2;
   st.bots = Math.min(24, st.bots + builds + (st.bots < 4 ? 1 : 0));
+  // Chips are repriced once the colony and the bot shop have taken theirs:
+  // a warehouse they emptied is scarce, and the curve says so.
+  repriceGood(s, 'chips');
   // The offworld diamond market: climbs most rounds, wobbles, and dips when
   // the colony dumps a lot at once. A glut's halving lasts one round.
   const diaBase = st.diamondsBeforeGlut || st.buy.diamonds;

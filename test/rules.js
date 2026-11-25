@@ -148,7 +148,8 @@ function exchangeStopsBuying() {
   const a = s.auction;
   const st = s.store;
   const room = a.exRoom;
-  check('the Exchange sets out to buy a finite number', Number.isFinite(room) && room >= 0 && room <= Math.max(C.EXCHANGE_HOLD, C.DIAMOND_ORDER), `room ${room}`);
+  check('the Exchange buys no more than its target', room === C.exchangeRoom(s, a.good) && room <= C.exchangeTarget(s, a.good), `room ${room}, target ${C.exchangeTarget(s, a.good)}`);
+  check("it only wants the colony's next two rounds", a.good === 'diamonds' || C.exchangeTarget(s, a.good) === C.exchangeDemand(s, a.good) * C.EXCHANGE_ROUNDS, `target ${C.exchangeTarget(s, a.good)}`);
 
   const axis = C.auctionAxis(s, a);
   check('its buy price is the bottom of the floor', axis.min === st.buy[a.good], `min ${axis.min}, buys at ${st.buy[a.good]}`);
@@ -178,16 +179,79 @@ function exchangeStaysBounded(games) {
       ['tendies', 'fuel'].forEach((gd) => (worst = Math.max(worst, s.store.stock[gd])));
     }
   }
-  // Production the Exchange buys in one auction can top up a warehouse that
-  // was already at its limit, so allow one auction's worth of headroom.
+  // It buys up to two rounds of demand and lets anything above its warehouse
+  // rot, so one round of demand on top of the warehouse is the ceiling.
   const cap = C.EXCHANGE_HOLD * 2;
   check(`the Exchange's warehouse stays under ${cap} across ${games} games`, worst <= cap, `worst ${worst}`);
+}
+
+// A good's price follows what the Exchange is holding against what the colony
+// needs: scarce is dearer than plentiful, and a price that climbed can fall.
+function pricesFollowStock() {
+  const bare = C.scarcityMult(0);
+  const fair = C.scarcityMult(1);
+  const glut = C.scarcityMult(2);
+  check('an empty warehouse prices above fair', bare > fair, `${bare} vs ${fair}`);
+  check('stock at the target is the fair price', fair === 1, `${fair}`);
+  check('a glut prices below fair', glut < fair, `${glut} vs ${fair}`);
+  let last = Infinity;
+  let monotone = true;
+  for (let cover = 0; cover <= 3.01; cover += 0.1) {
+    const m = C.scarcityMult(cover);
+    if (m > last + 1e-9) monotone = false;
+    last = m;
+  }
+  check('the curve never rises as stock does', monotone);
+
+  // A chip shortage round after round makes chips dearer; a warehouse full of
+  // them makes them cheaper again, from the same starting price.
+  const up = aiGame(11).s;
+  const down = aiGame(11).s;
+  const start = up.store.sell.chips;
+  for (let r = 0; r < 6; r++) {
+    up.store.stock.chips = 0;
+    C.repriceGood(up, 'chips');
+    down.store.stock.chips = C.exchangeTarget(down, 'chips') + 20;
+    C.repriceGood(down, 'chips');
+  }
+  check('chips get dearer while the colony is short', up.store.sell.chips > start, `${start} → ${up.store.sell.chips}`);
+  check('and cheaper again on a full warehouse', down.store.sell.chips < start, `${start} → ${down.store.sell.chips}`);
+  check('the Exchange always sells dearer than it buys', up.store.sell.chips > up.store.buy.chips && down.store.sell.chips > down.store.buy.chips);
+
+  // Over whole games the chip price should move both ways and follow the
+  // warehouse, rather than ratchet up to the cap whatever the stock.
+  let fell = 0;
+  let cappedWithStock = '';
+  const short = { n: 0, sum: 0 };
+  const spare = { n: 0, sum: 0 };
+  for (let g = 0; g < 10; g++) {
+    const { s, step } = aiGame(g + 200);
+    let prev = s.store.sell.chips;
+    let round = 0;
+    while (s.phase !== 'over') {
+      step();
+      if (s.round === round) continue;
+      round = s.round;
+      const price = s.store.sell.chips;
+      const cover = C.exchangeCover(s, 'chips');
+      if (price < prev) fell++;
+      prev = price;
+      const bucket = cover < 1 ? short : spare;
+      bucket.n++;
+      bucket.sum += price;
+      if (price >= C.PRICE_CAP && cover > 1.1) cappedWithStock = `game ${g + 1} round ${round}: ${price} with ${(cover * 100).toFixed(0)}% of its target in stock`;
+    }
+  }
+  check('the chip price comes down as well as up', fell > 0, `fell ${fell} times`);
+  check('it only reaches the cap while chips are short', !cappedWithStock, cappedWithStock);
+  check('chips cost more when the warehouse is short', short.n && spare.n && short.sum / short.n > spare.sum / spare.n, `short $${Math.round(short.sum / Math.max(1, short.n))} vs stocked $${Math.round(spare.sum / Math.max(1, spare.n))}`);
 }
 
 landStaysOwned(40);
 botsComeBack();
 exchangeStopsBuying();
 exchangeStaysBounded(10);
+pricesFollowStock();
 
 console.log(failures ? `${failures} check(s) failed.` : 'All checks passed.');
 process.exit(failures ? 1 : 0);
